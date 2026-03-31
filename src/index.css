@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+
+:root {
+  font-family: var(--sans);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(224, 137, 85, 0.18), transparent 28%),
+    radial-gradient(circle at 85% 14%, rgba(36, 140, 112, 0.14), transparent 24%),
+    linear-gradient(180deg, #f7efdf 0%, #f7f1e7 42%, #f6f4ef 100%);
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --bg: #f7f1e7;
+  --panel: rgba(255, 250, 243, 0.84);
+  --ink: #1c2b22;
+  --muted: #6a766d;
+  --muted-strong: #465249;
+  --line: rgba(28, 43, 34, 0.08);
+  --accent: #de7846;
+  --accent-strong: #ab542b;
+  --mint: #248c70;
+  --mint-strong: #186652;
+  --shadow:
+    0 24px 60px rgba(58, 47, 33, 0.12),
+    0 8px 20px rgba(58, 47, 33, 0.06);
+  --sans: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', sans-serif;
+  --display: 'Space Grotesk', 'IBM Plex Sans KR', sans-serif;
+  --mono: 'SFMono-Regular', 'Consolas', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+#root {
+  min-height: 100svh;
+}
