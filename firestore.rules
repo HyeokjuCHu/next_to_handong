@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isHandongUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^[^@]+@handong\\.ac\\.kr$');
+    }
+
+    function partyDoc(partyId) {
+      return get(/databases/$(database)/documents/deliveryParties/$(partyId));
+    }
+
+    function isPartyHost(partyId) {
+      return isHandongUser()
+        && partyDoc(partyId).data.hostId == request.auth.uid;
+    }
+
+    match /deliveryParties/{partyId} {
+      allow read: if true;
+      allow create: if isHandongUser()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.visibility == 'public'
+        && request.resource.data.status == 'open'
+        && request.resource.data.mood in ['silent', 'social'];
+      allow update, delete: if isHandongUser()
+        && resource.data.hostId == request.auth.uid;
+    }
+
+    match /deliveryParties/{partyId}/joinRequests/{userId} {
+      allow read: if isPartyHost(partyId)
+        || (isHandongUser() && request.auth.uid == userId);
+      allow create: if isHandongUser()
+        && request.auth.uid == userId
+        && request.resource.data.requesterId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if (
+        isPartyHost(partyId)
+        && resource.data.status == 'pending'
+        && request.resource.data.requesterId == resource.data.requesterId
+        && request.resource.data.requesterName == resource.data.requesterName
+        && request.resource.data.note == resource.data.note
+        && request.resource.data.status in ['approved', 'rejected']
+      ) || (
+        isHandongUser()
+        && request.auth.uid == userId
+        && resource.data.requesterId == request.auth.uid
+        && resource.data.status != 'approved'
+        && request.resource.data.requesterId == request.auth.uid
+        && request.resource.data.status == 'pending'
+      );
+      allow delete: if false;
+    }
+
+    match /deliveryParties/{partyId}/joinContacts/{userId} {
+      allow read: if isPartyHost(partyId);
+      allow create, update: if isHandongUser()
+        && request.auth.uid == userId
+        && request.resource.data.requesterId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /sharePosts/{postId} {
+      allow read: if true;
+      allow create: if isHandongUser()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.visibility == 'public'
+        && request.resource.data.status == 'open'
+        && request.resource.data.category in ['ingredient', 'supply'];
+      allow update, delete: if isHandongUser()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /usersPublic/{userId} {
+      allow read: if true;
+      allow create, update: if isHandongUser() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+  }
+}

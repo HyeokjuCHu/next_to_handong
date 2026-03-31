@@ -3,16 +3,34 @@ export type DeliveryMood = 'silent' | 'social'
 export type ShareCategory = 'ingredient' | 'supply'
 export type DeliveryFilter = 'all' | DeliveryMood
 export type ShareFilter = 'all' | ShareCategory
+export type JoinRequestStatus = 'pending' | 'approved' | 'rejected'
 
-export interface DeliveryParty {
-  kind: 'delivery'
-  id: string
-  title: string
-  restaurant: string
-  meetingPoint: string
+export interface CampusLocation {
+  label: string
+  pickerLabel?: string
+  aliases: readonly string[]
+  x: number
+  y: number
+  lat: number
+  lng: number
+  hitbox?: CampusHitbox
+}
+
+export interface CampusPoint {
   building: string
   x: number
   y: number
+  lat: number
+  lng: number
+}
+
+export interface DeliveryParty extends CampusPoint {
+  kind: 'delivery'
+  id: string
+  hostId: string
+  title: string
+  restaurant: string
+  meetingPoint: string
   mood: DeliveryMood
   eta: string
   feeSavings: string
@@ -24,18 +42,18 @@ export interface DeliveryParty {
   tags: string[]
   chatPreview: string[]
   summary: string
+  recruitUntil: string
+  recruitUntilTime: string
   pickupSlot: string
 }
 
-export interface SharePost {
+export interface SharePost extends CampusPoint {
   kind: 'share'
   id: string
+  ownerId: string
   title: string
   category: ShareCategory
   location: string
-  building: string
-  x: number
-  y: number
   quantity: string
   pickupWindow: string
   trust: number
@@ -44,280 +62,343 @@ export interface SharePost {
   note: string
   owner: string
   distance: string
+  pickupEndTime: string
+}
+
+export interface DeliveryJoinRequest {
+  id: string
+  requesterId: string
+  requesterName: string
+  note: string
+  phoneNumber?: string
+  status: JoinRequestStatus
+  submittedLabel: string
 }
 
 export type FeedItem = DeliveryParty | SharePost
 
-export const heroMetrics = [
-  { value: '12+', label: '지금 저녁 시간대 활성 카드' },
-  { value: '3,200원', label: '배달 파티 평균 절감 금액' },
-  { value: '89%', label: '나눔 매칭 가정 성사율' },
-]
-
-export const liveSignals = [
-  {
-    title: '학생회관 앞 치킨 파티가 1자리 남았어요',
-    description: 'Silent 참여도 가능해서 음식만 같이 주문하고 바로 수령할 수 있습니다.',
-    time: '2분 전',
-    tone: 'orange',
-  },
-  {
-    title: '느헤미야 1관에서 계란 소분 나눔이 올라왔어요',
-    description: '30구 한 판을 혼자 소비하기 어려운 학생을 위한 빠른 근거리 나눔입니다.',
-    time: '5분 전',
-    tone: 'mint',
-  },
-  {
-    title: '벧엘관 근처 세제 리필 글에 매너 칭호가 추가됐어요',
-    description: '응답 속도와 거래 후기 기반 신뢰 정보를 같이 보여주는 흐름을 반영했습니다.',
-    time: '11분 전',
-    tone: 'blue',
-  },
-]
-
-export const featureHighlights = [
-  {
-    tag: 'Delivery Mate',
-    title: '배달비를 아끼는 실시간 모집',
-    description:
-      '같은 시간대에 같은 음식을 시킬 사람을 모아 배달비 부담을 나누고, 수령 장소까지 한눈에 확인합니다.',
-    points: ['실시간 파티 카드', '지도 기반 수령 장소', 'Silent / Social 선택'],
-  },
-  {
-    tag: 'Re-Share',
-    title: '자취 생활에 맞는 소량 나눔',
-    description:
-      '계란, 양파, 세제처럼 혼자 소비하기 부담스러운 자원을 가까운 학생들과 가볍게 주고받습니다.',
-    points: ['식재료 / 생필품 구분', '도보 거리 중심 탐색', '빠른 근거리 매칭'],
-  },
-  {
-    tag: 'Trust Layer',
-    title: '매너 온도와 칭호 기반 신뢰 설계',
-    description:
-      '거래나 수령 과정이 불안하지 않도록, 온도와 칭호를 통해 사용자 경험을 더 안전하게 설계했습니다.',
-    points: ['매너 온도 표시', '응답 속도 신호', '안전 수령 존 가이드'],
-  },
-  {
-    tag: 'Scale Up',
-    title: '웹에서 검증하고 모바일로 확장',
-    description:
-      '이번 버전은 사용 흐름을 검증하기 위한 웹 MVP이며, 이후 같은 데이터 구조로 모바일 앱 전환이 쉽습니다.',
-    points: ['Firebase 실시간 구조 대비', 'Kakao Maps 연동 포인트 준비', '모바일 전환 친화적 정보 구조'],
-  },
-]
-
-export const campusLandmarks = [
-  { label: '비전관', x: 22, y: 24 },
-  { label: '도서관', x: 51, y: 38 },
-  { label: '학생회관', x: 24, y: 62 },
-  { label: '오석관', x: 64, y: 48 },
-  { label: '벧엘관', x: 43, y: 76 },
-  { label: '느헤미야', x: 77, y: 72 },
-]
-
-export const draftAnchors = {
-  delivery: [
-    { x: 18, y: 58 },
-    { x: 37, y: 70 },
-    { x: 58, y: 42 },
-    { x: 74, y: 61 },
-  ],
-  share: [
-    { x: 28, y: 68 },
-    { x: 46, y: 79 },
-    { x: 69, y: 57 },
-    { x: 76, y: 31 },
-  ],
+interface CampusHitbox {
+  left: number
+  right: number
+  top: number
+  bottom: number
 }
 
-export const seedDeliveryParties: DeliveryParty[] = [
+export const campusCenter = {
+  lat: 36.1030892,
+  lng: 129.3884513,
+}
+
+const campusGeoBounds = {
+  northLat: 36.10418,
+  southLat: 36.10178,
+  westLng: 129.38695,
+  eastLng: 129.39015,
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function geoFromRelativePosition(x: number, y: number) {
+  const clampedX = clamp(x, 0, 100)
+  const clampedY = clamp(y, 0, 100)
+
+  return {
+    lat:
+      campusGeoBounds.northLat -
+      (clampedY / 100) * (campusGeoBounds.northLat - campusGeoBounds.southLat),
+    lng:
+      campusGeoBounds.westLng +
+      (clampedX / 100) * (campusGeoBounds.eastLng - campusGeoBounds.westLng),
+  }
+}
+
+const rawCampusLocations = [
   {
-    kind: 'delivery',
-    id: 'delivery-bhc',
-    title: 'BHC 반반치킨 같이 주문해요',
-    restaurant: 'BHC 포항양덕점',
-    meetingPoint: '학생회관 앞 벤치',
-    building: '학생회관',
-    x: 22,
+    label: '운동장',
+    aliases: ['운동장', '메인 운동장', 'stadium'],
+    x: 6,
+    y: 13,
+  },
+  {
+    label: '그레이스홀',
+    aliases: ['그레이스홀', 'kgh', 'grace hall'],
+    x: 4,
+    y: 96,
+    hitbox: { left: 0, right: 9, top: 90, bottom: 100 },
+  },
+  {
+    label: '느헤미야',
+    aliases: ['느헤미야', '느헤미야홀', 'nmh', 'nehemiah'],
+    x: 14,
+    y: 27,
+    hitbox: { left: 6, right: 22, top: 18, bottom: 36 },
+  },
+  {
+    label: '올네이션스홀',
+    pickerLabel: '올네이션스',
+    aliases: ['올네이션스홀', 'anh', 'all nations hall'],
+    x: 10.5,
     y: 61,
-    mood: 'social',
-    eta: '26분 내 도착',
-    feeSavings: '1인당 3,200원 절감',
-    members: 3,
-    capacity: 4,
-    host: '윤하',
-    hostTrust: 41.5,
-    timeLabel: '2분 전',
-    tags: ['저녁식사', '치킨', '같이 먹기'],
-    chatPreview: ['학생회관 앞에서 같이 받을게요.', '시간 되면 치킨 같이 먹어도 좋아요.'],
-    summary: '강의 끝나고 바로 받을 수 있는 저녁 치킨 파티입니다.',
-    pickupSlot: '오늘 18:40',
+    hitbox: { left: 6, right: 15, top: 44, bottom: 78 },
   },
   {
-    kind: 'delivery',
-    id: 'delivery-malatang',
-    title: '마라탕 배달비 같이 나눠요',
-    restaurant: '탕화쿵푸 마라탕',
-    meetingPoint: '벧엘관 로비',
-    building: '벧엘관',
-    x: 44,
-    y: 77,
-    mood: 'silent',
-    eta: '21분 내 도착',
-    feeSavings: '1인당 2,800원 절감',
-    members: 2,
-    capacity: 4,
-    host: '민준',
-    hostTrust: 39.1,
-    timeLabel: '4분 전',
-    tags: ['마라탕', '음식만 같이 주문', '기숙사 수령'],
-    chatPreview: ['받고 바로 각자 올라가도 괜찮아요.', '맵기 단계만 채팅으로 맞춰요.'],
-    summary: '가볍게 배달비만 줄이고 싶은 사람들을 위한 Silent 파티입니다.',
-    pickupSlot: '오늘 18:25',
+    label: '뉴턴홀',
+    aliases: ['뉴턴홀', 'nth', 'newton hall'],
+    x: 20.5,
+    y: 50,
+    hitbox: { left: 16, right: 25, top: 45, bottom: 55 },
   },
   {
-    kind: 'delivery',
-    id: 'delivery-sushi',
-    title: '초밥 세트 같이 시키실 분',
-    restaurant: '스시하루',
-    meetingPoint: '오석관 입구',
-    building: '오석관',
-    x: 63,
-    y: 49,
-    mood: 'social',
-    eta: '32분 내 도착',
-    feeSavings: '1인당 3,000원 절감',
-    members: 2,
-    capacity: 3,
-    host: '예린',
-    hostTrust: 42.7,
-    timeLabel: '9분 전',
-    tags: ['초밥', '늦은 저녁', '같이 식사'],
-    chatPreview: ['오석관에서 같이 받을게요.', '식사 겸 잠깐 이야기 나눠도 좋겠어요.'],
-    summary: '늦은 저녁에 가볍게 초밥을 같이 먹고 싶은 학생들을 위한 파티입니다.',
-    pickupSlot: '오늘 19:10',
+    label: '코너스톤',
+    pickerLabel: '코너스톤',
+    aliases: ['코너스톤', 'cornerstone', '코너스톤홀', '저너스홀', 'csh', 'jurners hall'],
+    x: 16,
+    y: 81,
+    hitbox: { left: 12, right: 20, top: 76, bottom: 86 },
   },
-]
+  {
+    label: '오석관',
+    aliases: ['오석관', 'oh', 'osok hall', '오석관 입구'],
+    x: 25.5,
+    y: 69.5,
+    hitbox: { left: 21, right: 30, top: 55, bottom: 84 },
+  },
+  {
+    label: '현동홀',
+    aliases: ['현동홀', '한동홀', 'hdh', 'handong hall'],
+    x: 37,
+    y: 16.5,
+    hitbox: { left: 25, right: 49, top: 7, bottom: 26 },
+  },
+  {
+    label: 'GLC',
+    aliases: ['glc', '이공학관', '이공학관(로뎀)'],
+    x: 59,
+    y: 6.5,
+    hitbox: { left: 53, right: 64, top: 1, bottom: 12 },
+  },
+  {
+    label: 'HCA',
+    aliases: ['hca', '효암채플', '효암관'],
+    x: 69,
+    y: 6.5,
+    hitbox: { left: 64, right: 74, top: 1, bottom: 12 },
+  },
+  {
+    label: '로뎀잔디',
+    aliases: ['로뎀잔디', '로뎀 잔디', '잔디광장', 'rodem lawn'],
+    x: 37,
+    y: 43,
+    hitbox: { left: 27, right: 47, top: 28, bottom: 58 },
+  },
+  {
+    label: '평봉필드',
+    aliases: ['평봉필드', '평봉', '필드', '운동장 필드'],
+    x: 62,
+    y: 35.5,
+    hitbox: { left: 52, right: 72, top: 13, bottom: 58 },
+  },
+  {
+    label: '학관',
+    aliases: ['학관', 'su', 'student union'],
+    x: 61.5,
+    y: 71.5,
+    hitbox: { left: 53, right: 70, top: 58, bottom: 85 },
+  },
+  {
+    label: '산학협력관',
+    pickerLabel: '산협관',
+    aliases: ['산학협력관', '산학협력', 'industry cooperation'],
+    x: 81.5,
+    y: 22.5,
+    hitbox: { left: 76, right: 87, top: 18, bottom: 27 },
+  },
+  {
+    label: '헤브론홀',
+    aliases: ['헤브론홀', '헤브론', 'hebron hall', 'eben', '에벤에셀', '에벤에셀관'],
+    x: 93,
+    y: 22,
+    hitbox: { left: 88, right: 98, top: 17, bottom: 27 },
+  },
+  {
+    label: '비전관',
+    aliases: ['비전관', 'vision', 'vision hall', '토레이 rc', '토레이rc', '토레이', 'toray rc', '도레이 rc', '도레이rc', '도레이', 'dorei rc'],
+    x: 89.5,
+    y: 35.5,
+    hitbox: { left: 81, right: 98, top: 31, bottom: 40 },
+  },
+  {
+    label: '창조관',
+    aliases: ['창조관', '창조'],
+    x: 89.5,
+    y: 48.5,
+    hitbox: { left: 81, right: 98, top: 44, bottom: 53 },
+  },
+  {
+    label: '벧엘관',
+    aliases: ['벧엘관', 'bethel', '벧엘관 로비', '손양원 rc', '손양원rc', '손양원'],
+    x: 89.5,
+    y: 61.5,
+    hitbox: { left: 81, right: 98, top: 57, bottom: 66 },
+  },
+  {
+    label: '로뎀관',
+    aliases: ['로뎀관', '로뎀', 'rodem hall', '열송학사 rc', '열송학사rc', '열송학사'],
+    x: 89.5,
+    y: 74.5,
+    hitbox: { left: 81, right: 98, top: 70, bottom: 79 },
+  },
+  {
+    label: '국제관',
+    aliases: ['국제관', 'international hall', '카마이클 rc', '카마이클rc', '카마이클'],
+    x: 89.5,
+    y: 86,
+    hitbox: { left: 81, right: 98, top: 83, bottom: 92 },
+  },
+  {
+    label: '카이퍼 RC',
+    pickerLabel: '카이퍼',
+    aliases: ['카이퍼 rc', '카이퍼rc', '카이퍼'],
+    x: 70,
+    y: 96,
+    hitbox: { left: 62, right: 79, top: 92, bottom: 100 },
+  },
+  {
+    label: '은혜관',
+    aliases: ['은혜관', 'grace hall annex', '장기려 rc', '장기려rc', '장기려'],
+    x: 89.5,
+    y: 96,
+    hitbox: { left: 81, right: 98, top: 93, bottom: 100 },
+  },
+  {
+    label: '학생회관',
+    aliases: ['학생회관', 'student center', '학생회관 앞'],
+    x: 43,
+    y: 88,
+  },
+  {
+    label: '도서관',
+    aliases: ['도서관', 'library', '중앙도서관'],
+    x: 35,
+    y: 88,
+  },
+] as const
 
-export const seedSharePosts: SharePost[] = [
-  {
-    kind: 'share',
-    id: 'share-eggs',
-    title: '계란 10개 소분 나눔',
-    category: 'ingredient',
-    location: '느헤미야 1관 로비',
-    building: '느헤미야',
-    x: 76,
-    y: 71,
-    quantity: '10알',
-    pickupWindow: '오늘 21:00까지',
-    trust: 40.2,
-    badges: ['냉장보관', '소량 나눔', '응답 빠름'],
-    timeLabel: '5분 전',
-    note: '30구 한 판을 다 먹기 어려워서 필요한 분과 나누고 싶어요.',
-    owner: '서연',
-    distance: '도보 3분',
-  },
-  {
-    kind: 'share',
-    id: 'share-onion',
-    title: '양파 3개 나눔',
-    category: 'ingredient',
-    location: '학생회관 옆 쉼터',
-    building: '학생회관',
-    x: 27,
-    y: 66,
-    quantity: '중간 크기 3개',
-    pickupWindow: '오늘 저녁 8시 전',
-    trust: 38.9,
-    badges: ['즉시 수령 가능', '생활비 절약', '가까운 픽업'],
-    timeLabel: '13분 전',
-    note: '요리하고 남은 양파라 필요한 만큼만 가져가도 괜찮습니다.',
-    owner: '도윤',
-    distance: '도보 4분',
-  },
-  {
-    kind: 'share',
-    id: 'share-detergent',
-    title: '세제 리필 조금 나눔',
-    category: 'supply',
-    location: '벧엘관 세탁실 앞',
-    building: '벧엘관',
-    x: 42,
-    y: 75,
-    quantity: '500ml 정도',
-    pickupWindow: '오늘 밤 10시 전',
-    trust: 41.1,
-    badges: ['생필품', '기숙사 거래', '매너 칭호 보유'],
-    timeLabel: '11분 전',
-    note: '급하게 세제가 필요한 분에게 소량 먼저 나눌 수 있어요.',
-    owner: '지후',
-    distance: '도보 2분',
-  },
-  {
-    kind: 'share',
-    id: 'share-bags',
-    title: '종량제 봉투 2장 나눔',
-    category: 'supply',
-    location: '오석관 1층 출입구',
-    building: '오석관',
-    x: 65,
-    y: 47,
-    quantity: '20L 2장',
-    pickupWindow: '수업 끝난 후 바로 가능',
-    trust: 37.6,
-    badges: ['생필품', '캠퍼스 픽업', '가벼운 거래'],
-    timeLabel: '19분 전',
-    note: '급하게 필요한 분이 있다면 수업 끝나고 바로 전달할 수 있습니다.',
-    owner: '소민',
-    distance: '도보 5분',
-  },
-]
+export const campusLocations: CampusLocation[] = rawCampusLocations.map((location) => ({
+  ...location,
+  ...geoFromRelativePosition(location.x, location.y),
+}))
 
-export const trustPrograms = [
-  {
-    metric: '36.5℃ ~ 45.0℃',
-    title: '매너 온도 중심의 신뢰 점수',
-    description:
-      '거래 완료 여부, 응답 속도, 후기 누적 같은 요소를 반영해 학생 간 신뢰를 숫자로 직관적으로 보여줍니다.',
-  },
-  {
-    metric: '6개 핵심 거점',
-    title: '안전 수령 존 추천',
-    description:
-      '학생회관, 기숙사 로비, 주요 강의동처럼 사람이 자주 드나드는 위치를 우선 제안해 거래 부담을 줄입니다.',
-  },
-  {
-    metric: '실시간 알림',
-    title: '관심 주제 기반 빠른 매칭',
-    description:
-      '치킨, 마라탕, 계란, 세제처럼 자주 찾는 항목을 저장해두고 조건이 맞는 글이 뜨면 바로 반응할 수 있습니다.',
-  },
-]
+export const campusLandmarks = campusLocations.map((location) => ({
+  label: location.label,
+  x: location.x,
+  y: location.y,
+}))
 
-export const roadmapSteps = [
-  {
-    phase: '01',
-    title: '웹 MVP 흐름 검증',
-    description:
-      '현재 버전처럼 배달 파티, 나눔 게시판, 지도 기반 장소 선택, 빠른 글 작성 흐름을 먼저 검증합니다.',
-  },
-  {
-    phase: '02',
-    title: 'Firebase 실시간 동기화 연결',
-    description:
-      '실시간 모집 현황, 채팅, 푸시 알림, 사용자 상태를 Firebase로 연결해 여러 사용자가 동시에 쓰는 서비스로 확장합니다.',
-  },
-  {
-    phase: '03',
-    title: 'Kakao Maps 캠퍼스 지도 고도화',
-    description:
-      '실제 지도 위에 수령 위치 핀, 안전 거래 거점, 거리 기반 탐색을 얹어 장소 선택 경험을 현실감 있게 만듭니다.',
-  },
-  {
-    phase: '04',
-    title: '모바일 앱 전환',
-    description:
-      '웹에서 검증한 정보 구조와 상태 흐름을 바탕으로, 이후 모바일 앱에서도 같은 핵심 경험을 자연스럽게 이어갑니다.',
-  },
-]
+const campusLocationsByLabel = new Map(
+  campusLocations.map((location) => [location.label, location] as const),
+)
+
+function normalizePlace(value: string) {
+  return value.toLowerCase().replace(/\s+/g, '')
+}
+
+function buildCampusPoint(location: CampusLocation): CampusPoint {
+  return {
+    building: location.label,
+    x: location.x,
+    y: location.y,
+    lat: location.lat,
+    lng: location.lng,
+  }
+}
+
+function getImageDistance(location: CampusLocation, x: number, y: number) {
+  const centerDistance = (location.x - x) ** 2 + (location.y - y) ** 2
+
+  if (!location.hitbox) {
+    return centerDistance
+  }
+
+  const dx =
+    x < location.hitbox.left
+      ? location.hitbox.left - x
+      : x > location.hitbox.right
+        ? x - location.hitbox.right
+        : 0
+  const dy =
+    y < location.hitbox.top
+      ? location.hitbox.top - y
+      : y > location.hitbox.bottom
+        ? y - location.hitbox.bottom
+        : 0
+  const hitboxDistance = dx ** 2 + dy ** 2
+
+  return hitboxDistance * 100 + centerDistance
+}
+
+function resolveLocationFromImagePosition(x: number, y: number) {
+  const clampedX = clamp(x, 0, 100)
+  const clampedY = clamp(y, 0, 100)
+
+  return campusLocations.reduce((closest, current) =>
+    getImageDistance(current, clampedX, clampedY) <
+    getImageDistance(closest, clampedX, clampedY)
+      ? current
+      : closest,
+  )
+}
+
+export function resolveCampusPointFromImagePosition(x: number, y: number): CampusPoint {
+  return buildCampusPoint(resolveLocationFromImagePosition(x, y))
+}
+
+export function resolveCampusPoint(place: string) {
+  const normalizedPlace = normalizePlace(place)
+  const matched =
+    campusLocations.find((location) =>
+      [location.label, ...location.aliases].some((alias) =>
+        normalizedPlace.includes(normalizePlace(alias)),
+      ),
+    ) ?? campusLocationsByLabel.get('학관')!
+
+  return buildCampusPoint(matched)
+}
+
+export function projectCampusCoordinates(lat: number, lng: number) {
+  return {
+    x: clamp(
+      ((lng - campusGeoBounds.westLng) /
+        (campusGeoBounds.eastLng - campusGeoBounds.westLng)) *
+        100,
+      0,
+      100,
+    ),
+    y: clamp(
+      ((campusGeoBounds.northLat - lat) /
+        (campusGeoBounds.northLat - campusGeoBounds.southLat)) *
+        100,
+      0,
+      100,
+    ),
+  }
+}
+
+export function unprojectCampusCoordinates(x: number, y: number) {
+  return geoFromRelativePosition(x, y)
+}
+
+export function resolveNearestCampusPoint(lat: number, lng: number): CampusPoint {
+  const projected = projectCampusCoordinates(lat, lng)
+  const matched = resolveLocationFromImagePosition(projected.x, projected.y)
+
+  return {
+    building: matched.label,
+    x: projected.x,
+    y: projected.y,
+    lat,
+    lng,
+  }
+}
