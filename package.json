@@ -5,16 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
+    "lint": "node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js .",
     "preview": "vite preview",
-    "firebase:login": "npx firebase-tools login",
-    "deploy": "npm run build && npx firebase-tools deploy --project next-to-handong",
-    "deploy:hosting": "npm run build && npx firebase-tools deploy --only hosting --project next-to-handong",
-    "deploy:firestore": "npx firebase-tools deploy --only firestore --project next-to-handong"
+    "firebase:login": "node --max-old-space-size=4096 ./node_modules/firebase-tools/lib/bin/firebase.js login",
+    "deploy": "npm run build && node --max-old-space-size=4096 ./node_modules/firebase-tools/lib/bin/firebase.js deploy --project next-to-handong",
+    "deploy:hosting": "npm run build && node --max-old-space-size=4096 ./node_modules/firebase-tools/lib/bin/firebase.js deploy --only hosting --project next-to-handong",
+    "deploy:firestore": "node --max-old-space-size=4096 ./node_modules/firebase-tools/lib/bin/firebase.js deploy --only firestore --project next-to-handong"
   },
   "dependencies": {
     "firebase": "^12.11.0",
+    "firebase-admin": "^13.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2"
@@ -28,6 +29,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-tools": "^15.13.0",
     "globals": "^17.4.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",

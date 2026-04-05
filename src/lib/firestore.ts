@@ -18,12 +18,15 @@ import type { User } from 'firebase/auth'
 import {
   type CampusPoint,
   type DeliveryJoinRequest,
+  type PublicUserProfile,
   resolveCampusPoint,
   type DeliveryMood,
   type DeliveryParty,
   type JoinRequestStatus,
+  type PostLifecycleStatus,
   type ShareCategory,
   type SharePost,
+  type UserProfileSettings,
 } from '../data/campusData'
 import { db, isFirebaseConfigured } from './firebase'
 
@@ -48,6 +51,41 @@ interface CreateShareInput {
 interface CreateJoinRequestInput {
   phoneNumber: string
   note: string
+}
+
+function getTimestampMs(value: unknown, fallback = Date.now()) {
+  const timestamp = value as { toDate?: () => Date } | null
+
+  if (!timestamp || typeof timestamp.toDate !== 'function') {
+    return fallback
+  }
+
+  return timestamp.toDate().getTime()
+}
+
+function buildExpiryMs(time: string, baseMs = Date.now()) {
+  const [hoursText = '0', minutesText = '0'] = time.split(':')
+  const hours = Number.parseInt(hoursText, 10)
+  const minutes = Number.parseInt(minutesText, 10)
+  const baseDate = new Date(baseMs)
+
+  const expiresAt = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    0,
+    0,
+  )
+
+  return expiresAt.getTime()
+}
+
+function asPostStatus(value: unknown, fallback: PostLifecycleStatus = 'open') {
+  return value === 'closed' || value === 'completed' || value === 'expired' || value === 'open'
+    ? value
+    : fallback
 }
 
 function asString(value: unknown, fallback: string) {
@@ -110,6 +148,20 @@ function formatPickupWindow(time: string) {
   return `오늘 ${time}까지 수령 가능`
 }
 
+function mapUserProfileDoc(id: string, raw: DocumentData): PublicUserProfile {
+  return {
+    uid: id,
+    displayName: asString(raw.displayName, '한동 학생'),
+    photoURL: asString(raw.photoURL, ''),
+    mannerTemperature: asNumber(raw.mannerTemperature, 36.5),
+    studentId: asString(raw.studentId, ''),
+    bio: asString(raw.bio, ''),
+    hometown: asString(raw.hometown, ''),
+    major: asString(raw.major, ''),
+    interests: asStringArray(raw.interests, []),
+  }
+}
+
 function mapJoinRequestDoc(id: string, raw: DocumentData): DeliveryJoinRequest {
   const status = asString(raw.status, 'pending')
 
@@ -124,19 +176,17 @@ function mapJoinRequestDoc(id: string, raw: DocumentData): DeliveryJoinRequest {
   }
 }
 
-function mapDeliveryDoc(id: string, raw: DocumentData): DeliveryParty | null {
-  if (asString(raw.status, 'open') !== 'open') {
-    return null
-  }
-
+function mapDeliveryDoc(id: string, raw: DocumentData): DeliveryParty {
   const meetingPoint = asString(raw.meetingPoint, '학생회관 앞')
   const point = resolveCampusPoint(asString(raw.building, meetingPoint))
   const recruitUntilTime = asString(raw.recruitUntilTime, '18:30')
+  const createdAtMs = getTimestampMs(raw.createdAt)
 
   return {
     kind: 'delivery',
     id,
     hostId: asString(raw.hostId, ''),
+    status: asPostStatus(raw.status, 'open'),
     title: asString(raw.title, '제목 없는 배달 파티'),
     restaurant: asString(raw.restaurant, '음식점 미정'),
     meetingPoint,
@@ -159,22 +209,22 @@ function mapDeliveryDoc(id: string, raw: DocumentData): DeliveryParty | null {
     recruitUntil: asString(raw.recruitUntil, formatRecruitUntil(recruitUntilTime)),
     recruitUntilTime,
     pickupSlot: asString(raw.pickupSlot, '오늘 저녁'),
+    createdAtMs,
+    expiresAtMs: asNumber(raw.expiresAtMs, buildExpiryMs(recruitUntilTime, createdAtMs)),
   }
 }
 
-function mapShareDoc(id: string, raw: DocumentData): SharePost | null {
-  if (asString(raw.status, 'open') !== 'open') {
-    return null
-  }
-
+function mapShareDoc(id: string, raw: DocumentData): SharePost {
   const location = asString(raw.location, '학생회관 앞')
   const point = resolveCampusPoint(asString(raw.building, location))
   const pickupEndTime = asString(raw.pickupEndTime, '21:00')
+  const createdAtMs = getTimestampMs(raw.createdAt)
 
   return {
     kind: 'share',
     id,
     ownerId: asString(raw.ownerId, ''),
+    status: asPostStatus(raw.status, 'open'),
     title: asString(raw.title, '제목 없는 나눔 글'),
     category: raw.category === 'supply' ? 'supply' : 'ingredient',
     location,
@@ -192,6 +242,8 @@ function mapShareDoc(id: string, raw: DocumentData): SharePost | null {
     owner: asString(raw.owner, '한동 학생'),
     distance: asString(raw.distance, '도보 3분'),
     pickupEndTime,
+    createdAtMs,
+    expiresAtMs: asNumber(raw.expiresAtMs, buildExpiryMs(pickupEndTime, createdAtMs)),
   }
 }
 
@@ -212,8 +264,7 @@ export function listenToDeliveryParties(
     (snapshot) => {
       const items = snapshot.docs
         .map((entry) => mapDeliveryDoc(entry.id, entry.data()))
-        .filter((item): item is DeliveryParty => item !== null)
-
+        
       onData(items)
     },
     (error) => onError(error),
@@ -233,8 +284,7 @@ export function listenToSharePosts(
     (snapshot) => {
       const items = snapshot.docs
         .map((entry) => mapShareDoc(entry.id, entry.data()))
-        .filter((item): item is SharePost => item !== null)
-
+        
       onData(items)
     },
     (error) => onError(error),
@@ -320,6 +370,59 @@ export function listenToMyDeliveryJoinRequest(
   )
 }
 
+export function listenToUserProfile(
+  userId: string,
+  onData: (item: PublicUserProfile | null) => void,
+  onError: (error: Error) => void,
+) {
+  if (!db || !isFirebaseConfigured || !userId) {
+    return noopUnsubscribe()
+  }
+
+  return onSnapshot(
+    doc(db, 'usersPublic', userId),
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onData(null)
+        return
+      }
+
+      onData(mapUserProfileDoc(snapshot.id, snapshot.data()))
+    },
+    (error) => onError(error),
+  )
+}
+
+export async function saveUserProfileSettings(
+  user: User,
+  input: UserProfileSettings,
+) {
+  if (!db || !isFirebaseConfigured) {
+    throw new Error('Firebase가 아직 설정되지 않았어요.')
+  }
+
+  const interests = input.interests
+    .map((item) => item.trim())
+    .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index)
+
+  await setDoc(
+    doc(db, 'usersPublic', user.uid),
+    {
+      uid: user.uid,
+      displayName: formatDisplayName(user),
+      email: user.email ?? '',
+      photoURL: user.photoURL ?? '',
+      studentId: input.studentId.trim(),
+      bio: input.bio.trim(),
+      hometown: input.hometown.trim(),
+      major: input.major.trim(),
+      interests,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  )
+}
+
 export async function syncUserProfile(user: User) {
   if (!db || !isFirebaseConfigured) {
     return
@@ -347,6 +450,7 @@ export async function createDeliveryParty(user: User, input: CreateDeliveryInput
   }
 
   const point = input.point ?? resolveCampusPoint(input.location)
+  const expiresAtMs = buildExpiryMs(input.deadlineTime)
   const docRef = await addDoc(collection(db, 'deliveryParties'), {
     title: `${input.title} 파티`,
     restaurant: input.title,
@@ -379,6 +483,7 @@ export async function createDeliveryParty(user: User, input: CreateDeliveryInput
     campusId: 'handong',
     visibility: 'public',
     status: 'open',
+    expiresAtMs,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -429,6 +534,7 @@ export async function createSharePost(user: User, input: CreateShareInput) {
   }
 
   const point = input.point ?? resolveCampusPoint(input.location)
+  const expiresAtMs = buildExpiryMs(input.pickupTime)
   const docRef = await addDoc(collection(db, 'sharePosts'), {
     title: input.title,
     category: input.category,
@@ -453,6 +559,7 @@ export async function createSharePost(user: User, input: CreateShareInput) {
     campusId: 'handong',
     visibility: 'public',
     status: 'open',
+    expiresAtMs,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -470,6 +577,7 @@ export async function updateDeliveryParty(
   }
 
   const point = input.point ?? resolveCampusPoint(input.location)
+  const expiresAtMs = buildExpiryMs(input.deadlineTime)
   await updateDoc(doc(db, 'deliveryParties', partyId), {
     title: `${input.title} 파티`,
     restaurant: input.title,
@@ -488,6 +596,7 @@ export async function updateDeliveryParty(
         ? ['음식만 같이 주문', '빠른 모집', '수정됨']
         : ['함께 식사 가능', '빠른 모집', '수정됨'],
     summary: input.note || '메뉴 조율은 채팅에서 빠르게 정할 수 있어요.',
+    expiresAtMs,
     updatedAt: serverTimestamp(),
   })
 }
@@ -502,6 +611,7 @@ export async function updateSharePost(
   }
 
   const point = input.point ?? resolveCampusPoint(input.location)
+  const expiresAtMs = buildExpiryMs(input.pickupTime)
   await updateDoc(doc(db, 'sharePosts', postId), {
     title: input.title,
     category: input.category,
@@ -519,6 +629,7 @@ export async function updateSharePost(
         ? ['소량 나눔', '식재료', '수정됨']
         : ['생활필수', '생필품', '수정됨'],
     note: input.note || '필요한 분이 먼저 메시지 주시면 맞춰드릴게요.',
+    expiresAtMs,
     updatedAt: serverTimestamp(),
   })
 }

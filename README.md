@@ -43,7 +43,9 @@ npm run build
 cp .env.example .env
 ```
 
-현재 프로젝트는 `VITE_FIREBASE_*`, `VITE_KAKAO_JAVASCRIPT_KEY`를 읽습니다.
+현재 프로젝트는 `VITE_FIREBASE_*`, `VITE_KAKAO_JAVASCRIPT_KEY`, `VITE_SOCIAL_AI_API_URL`를 읽습니다.
+
+`VITE_SOCIAL_AI_API_URL`은 선택값이고, 비워두면 Social 식사 질문은 기본 fallback 질문으로만 표시됩니다.
 
 ## Firebase 콘솔에서 해야 할 것
 
@@ -57,6 +59,33 @@ CLI를 쓸 경우에는 프로젝트 루트에서 아래처럼 배포할 수 있
 ```bash
 firebase deploy --only firestore --project next-to-handong
 ```
+
+## Vercel Social AI API
+
+Blaze 없이 Gemini를 쓰려면 Firebase Hosting은 그대로 두고, Social 질문 생성만 Vercel API로 분리하면 됩니다.
+
+필요한 Vercel 환경변수:
+
+- `GEMINI_API_KEY`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- 선택: `SOCIAL_AI_ALLOWED_ORIGINS`
+
+프론트 `.env`에는 아래 값을 넣습니다.
+
+```bash
+VITE_SOCIAL_AI_API_URL=https://<your-vercel-app>.vercel.app/api/social-brief
+```
+
+동작 방식:
+
+1. 프론트가 현재 로그인한 Firebase 사용자 ID 토큰을 Vercel API에 전송
+2. Vercel API가 토큰을 검증하고 Firestore에서 Social 파티/프로필을 조회
+3. Vercel API가 Gemini에 질문 생성을 요청
+4. 질문만 프론트로 돌려줌
+
+`SOCIAL_AI_ALLOWED_ORIGINS`를 쓰면 `https://next-to-handong.web.app,http://localhost:5173` 같은 형식으로 허용 출처를 추가할 수 있습니다.
 
 ## Firebase Hosting 배포
 

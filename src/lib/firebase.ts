@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from 'firebase/app'
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { getFunctions } from 'firebase/functions'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,6 +30,7 @@ export const firebaseApp = isFirebaseConfigured
 
 export const auth = firebaseApp ? getAuth(firebaseApp) : null
 export const db = firebaseApp ? getFirestore(firebaseApp) : null
+export const functions = firebaseApp ? getFunctions(firebaseApp, 'asia-northeast3') : null
 export const googleProvider = firebaseApp ? new GoogleAuthProvider() : null
 
 if (googleProvider) {

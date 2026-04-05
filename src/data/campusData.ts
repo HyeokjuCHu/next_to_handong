@@ -4,6 +4,36 @@ export type ShareCategory = 'ingredient' | 'supply'
 export type DeliveryFilter = 'all' | DeliveryMood
 export type ShareFilter = 'all' | ShareCategory
 export type JoinRequestStatus = 'pending' | 'approved' | 'rejected'
+export type PostLifecycleStatus = 'open' | 'closed' | 'completed' | 'expired'
+
+export interface UserProfileSettings {
+  studentId: string
+  bio: string
+  hometown: string
+  major: string
+  interests: string[]
+}
+
+export interface PublicUserProfile extends UserProfileSettings {
+  uid: string
+  displayName: string
+  photoURL: string
+  mannerTemperature: number
+}
+
+export interface SocialParticipantProfile extends UserProfileSettings {
+  uid: string
+  displayName: string
+  photoURL: string
+  role: 'host' | 'member'
+}
+
+export interface SocialConversationBrief {
+  partyId: string
+  participants: SocialParticipantProfile[]
+  prompts: string[]
+  usedFallbackPrompt: boolean
+}
 
 export interface CampusLocation {
   label: string
@@ -28,6 +58,7 @@ export interface DeliveryParty extends CampusPoint {
   kind: 'delivery'
   id: string
   hostId: string
+  status: PostLifecycleStatus
   title: string
   restaurant: string
   meetingPoint: string
@@ -45,12 +76,15 @@ export interface DeliveryParty extends CampusPoint {
   recruitUntil: string
   recruitUntilTime: string
   pickupSlot: string
+  createdAtMs: number
+  expiresAtMs: number
 }
 
 export interface SharePost extends CampusPoint {
   kind: 'share'
   id: string
   ownerId: string
+  status: PostLifecycleStatus
   title: string
   category: ShareCategory
   location: string
@@ -63,6 +97,8 @@ export interface SharePost extends CampusPoint {
   owner: string
   distance: string
   pickupEndTime: string
+  createdAtMs: number
+  expiresAtMs: number
 }
 
 export interface DeliveryJoinRequest {
