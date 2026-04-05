@@ -143,6 +143,7 @@ function buildPrompt(participants) {
     '한국어로만 답하고, 한 줄짜리 질문 4개만 만들어라.',
     '번호, 제목, 설명 없이 질문 문장만 줄바꿈으로 반환해라.',
     '질문 4개는 서로 주제가 겹치지 않게 만들어라.',
+    '모든 질문은 반드시 자연스러운 완성 문장으로 쓰고, 물음표로 끝내라.',
     '너무 사적이거나 민감한 주제는 피하고, 가볍고 자연스러운 질문으로 만들어라.',
     hasDetailedProfiles
       ? '가능하면 최소 2개의 질문은 참여자들의 전공, 고향, 관심사를 직접 반영해라.'
@@ -154,16 +155,81 @@ function buildPrompt(participants) {
   ].join('\n')
 }
 
+function cleanPromptCandidate(text) {
+  return text
+    .replace(/^[-*•\s]+/, '')
+    .replace(/^(?:q|질문)\s*\d+[:.)\-\s]*/i, '')
+    .replace(/^\d+[:.)\-\s]*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function extractPrompts(text) {
   if (!text) {
     return []
   }
 
-  return text
+  const normalized = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\r/g, '\n')
+    .trim()
+
+  if (!normalized) {
+    return []
+  }
+
+  const prompts = []
+  let buffer = ''
+
+  const lines = normalized
     .split(/\n+/)
-    .map((line) => line.replace(/^[-*•\d.\s]+/, '').trim())
-    .filter((line, index, array) => line.length > 0 && array.indexOf(line) === index)
-    .slice(0, 4)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  for (const rawLine of lines) {
+    const startsNewPrompt = /^(?:[-*•]\s+|(?:q|질문)\s*\d+[:.)\-\s]+|\d+[:.)\-\s]+)/i.test(rawLine)
+    const line = cleanPromptCandidate(rawLine)
+
+    if (!line) {
+      continue
+    }
+
+    if (startsNewPrompt && buffer) {
+      prompts.push(buffer)
+      buffer = line
+    } else {
+      buffer = buffer ? `${buffer} ${line}` : line
+    }
+
+    if (/[?？!]$/.test(line)) {
+      prompts.push(buffer)
+      buffer = ''
+    }
+  }
+
+  if (buffer) {
+    prompts.push(buffer)
+  }
+
+  const sentenceSplit = prompts
+    .flatMap((item) =>
+      item
+        .split(/(?<=[?？!])\s+/)
+        .map((part) => cleanPromptCandidate(part))
+        .filter(Boolean),
+    )
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter((item) => item.length >= 8)
+
+  return sentenceSplit.filter((line, index, array) => array.indexOf(line) === index).slice(0, 4)
+}
+
+function buildFinalPrompts(generatedPrompts) {
+  const merged = [...generatedPrompts, ...defaultPrompts()]
+    .map((prompt) => cleanPromptCandidate(prompt))
+    .filter((prompt, index, array) => prompt.length > 0 && array.indexOf(prompt) === index)
+
+  return merged.slice(0, 4)
 }
 
 async function requestGeminiPrompts(prompt) {
@@ -328,7 +394,8 @@ export default async function handler(request, response) {
       const generatedPrompts = await requestGeminiPrompts(buildPrompt(participants))
 
       if (generatedPrompts.length > 0) {
-        prompts = generatedPrompts
+        prompts = buildFinalPrompts(generatedPrompts)
+        usedFallbackPrompt = prompts.length < 4 || prompts.some((prompt) => defaultPrompts().includes(prompt))
       } else {
         usedFallbackPrompt = true
       }
