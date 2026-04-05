@@ -293,10 +293,23 @@ async function requestGeminiPrompts(prompt) {
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 1.05,
-          topP: 0.95,
+          temperature: 0.9,
+          topP: 0.9,
           maxOutputTokens: 280,
           responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'object',
+            properties: {
+              prompts: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+            },
+            required: ['prompts'],
+          },
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
         },
       }),
     },
