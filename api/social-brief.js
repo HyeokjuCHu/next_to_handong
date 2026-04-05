@@ -140,8 +140,9 @@ function buildPrompt(participants) {
 
   return [
     '너는 한동대학교 학생들이 처음 만나도 어색하지 않게 대화를 시작하도록 돕는 캠퍼스 식사 도우미다.',
-    '한국어로만 답하고, 한 줄짜리 질문 4개만 만들어라.',
-    '번호, 제목, 설명 없이 질문 문장만 줄바꿈으로 반환해라.',
+    '한국어로만 답하고, 질문 4개만 만들어라.',
+    '반드시 JSON만 반환해라.',
+    '형식은 {"prompts":["질문1","질문2","질문3","질문4"]} 로 고정해라.',
     '질문 4개는 서로 주제가 겹치지 않게 만들어라.',
     '모든 질문은 반드시 자연스러운 완성 문장으로 쓰고, 물음표로 끝내라.',
     '너무 사적이거나 민감한 주제는 피하고, 가볍고 자연스러운 질문으로 만들어라.',
@@ -160,8 +161,28 @@ function cleanPromptCandidate(text) {
     .replace(/^[-*•\s]+/, '')
     .replace(/^(?:q|질문)\s*\d+[:.)\-\s]*/i, '')
     .replace(/^\d+[:.)\-\s]*/, '')
+    .replace(/^["']|["']$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function isCompleteQuestion(prompt) {
+  return (
+    prompt.length >= 12 &&
+    /[?？]$/.test(prompt) &&
+    !/[,:;]$/.test(prompt)
+  )
+}
+
+function normalizePromptArray(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item) => typeof item === 'string')
+    .map((item) => cleanPromptCandidate(item))
+    .filter((item, index, array) => isCompleteQuestion(item) && array.indexOf(item) === index)
 }
 
 function extractPrompts(text) {
@@ -219,7 +240,7 @@ function extractPrompts(text) {
         .filter(Boolean),
     )
     .map((item) => item.replace(/\s+/g, ' ').trim())
-    .filter((item) => item.length >= 8)
+    .filter((item) => isCompleteQuestion(item))
 
   return sentenceSplit.filter((line, index, array) => array.indexOf(line) === index).slice(0, 4)
 }
@@ -227,9 +248,31 @@ function extractPrompts(text) {
 function buildFinalPrompts(generatedPrompts) {
   const merged = [...generatedPrompts, ...defaultPrompts()]
     .map((prompt) => cleanPromptCandidate(prompt))
-    .filter((prompt, index, array) => prompt.length > 0 && array.indexOf(prompt) === index)
+    .filter((prompt, index, array) => isCompleteQuestion(prompt) && array.indexOf(prompt) === index)
 
   return merged.slice(0, 4)
+}
+
+function parseJsonPrompts(text) {
+  if (!text) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(text)
+
+    if (Array.isArray(parsed)) {
+      return normalizePromptArray(parsed)
+    }
+
+    if (parsed && typeof parsed === 'object' && 'prompts' in parsed) {
+      return normalizePromptArray(parsed.prompts)
+    }
+  } catch {
+    return []
+  }
+
+  return []
 }
 
 async function requestGeminiPrompts(prompt) {
@@ -253,6 +296,7 @@ async function requestGeminiPrompts(prompt) {
           temperature: 1.05,
           topP: 0.95,
           maxOutputTokens: 280,
+          responseMimeType: 'application/json',
         },
       }),
     },
@@ -268,6 +312,12 @@ async function requestGeminiPrompts(prompt) {
     .flatMap((candidate) => candidate?.content?.parts || [])
     .map((part) => (typeof part?.text === 'string' ? part.text : ''))
     .join('\n')
+
+  const jsonPrompts = parseJsonPrompts(text)
+
+  if (jsonPrompts.length > 0) {
+    return jsonPrompts
+  }
 
   return extractPrompts(text)
 }
@@ -387,7 +437,8 @@ export default async function handler(request, response) {
       )
     }
 
-    let prompts = defaultPrompts()
+    const baseFallbackPrompts = defaultPrompts()
+    let prompts = baseFallbackPrompts
     let usedFallbackPrompt = !participants.some(hasMeaningfulProfile)
 
     try {
@@ -395,7 +446,9 @@ export default async function handler(request, response) {
 
       if (generatedPrompts.length > 0) {
         prompts = buildFinalPrompts(generatedPrompts)
-        usedFallbackPrompt = prompts.length < 4 || prompts.some((prompt) => defaultPrompts().includes(prompt))
+        usedFallbackPrompt =
+          prompts.length < 4 ||
+          prompts.some((prompt) => baseFallbackPrompts.includes(prompt))
       } else {
         usedFallbackPrompt = true
       }
