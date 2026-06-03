@@ -9,6 +9,14 @@ const DEFAULT_ORIGINS = [
   'https://next-to-handong.web.app',
 ]
 
+class HttpError extends Error {
+  constructor(statusCode, message) {
+    super(message)
+    this.name = 'HttpError'
+    this.statusCode = statusCode
+  }
+}
+
 function readEnv(name) {
   return typeof process.env[name] === 'string' ? process.env[name].trim() : ''
 }
@@ -279,7 +287,7 @@ async function requestGeminiPrompts(prompt) {
   const apiKey = readEnv('GEMINI_API_KEY')
 
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY가 설정되지 않았습니다.')
+    throw new HttpError(500, 'GEMINI_API_KEY가 설정되지 않았습니다.')
   }
 
   const response = await fetch(
@@ -339,7 +347,7 @@ async function verifyUser(request) {
   const authorization = typeof request.headers.authorization === 'string' ? request.headers.authorization : ''
 
   if (!authorization.startsWith('Bearer ')) {
-    throw new Error('로그인이 필요합니다.')
+    throw new HttpError(401, '로그인이 필요합니다.')
   }
 
   const idToken = authorization.slice('Bearer '.length)
@@ -348,7 +356,7 @@ async function verifyUser(request) {
   const email = asString(decodedToken.email, '')
 
   if (!decodedToken.email_verified || !email.endsWith(`@${SCHOOL_DOMAIN}`)) {
-    throw new Error('학교 계정 사용자만 이용할 수 있습니다.')
+    throw new HttpError(403, '학교 계정 사용자만 이용할 수 있습니다.')
   }
 
   return decodedToken
@@ -482,7 +490,8 @@ export default async function handler(request, response) {
       origin,
     )
   } catch (error) {
+    const statusCode = error instanceof HttpError ? error.statusCode : 500
     const message = error instanceof Error ? error.message : '대화 거리 추천을 준비하지 못했습니다.'
-    return sendJson(response, 500, { error: message }, origin)
+    return sendJson(response, statusCode, { error: message }, origin)
   }
 }

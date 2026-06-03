@@ -4,7 +4,7 @@ export type ShareCategory = 'ingredient' | 'supply'
 export type DeliveryFilter = 'all' | DeliveryMood
 export type ShareFilter = 'all' | ShareCategory
 export type JoinRequestStatus = 'pending' | 'approved' | 'rejected'
-export type PostLifecycleStatus = 'open' | 'closed' | 'completed' | 'expired'
+export type PostLifecycleStatus = 'open' | 'reserved' | 'closed' | 'completed' | 'expired'
 
 export interface UserProfileSettings {
   studentId: string
@@ -96,6 +96,10 @@ export interface SharePost extends CampusPoint {
   note: string
   owner: string
   distance: string
+  reservedById: string
+  reservedByName: string
+  reservedAtMs: number
+  reservedAtLabel: string
   pickupEndTime: string
   createdAtMs: number
   expiresAtMs: number

@@ -81,7 +81,6 @@ export function LocationPickerMap({
               : '건물 버튼을 누르면 해당 위치가 바로 저장됩니다.'}
           </p>
         </div>
-        <p>제공해주신 학교 지도 배치를 기준으로 만든 커스텀 선택 지도입니다.</p>
       </div>
     </div>
   )

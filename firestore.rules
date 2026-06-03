@@ -73,7 +73,29 @@ service cloud.firestore {
         && request.resource.data.visibility == 'public'
         && request.resource.data.status == 'open'
         && request.resource.data.category in ['ingredient', 'supply'];
-      allow update, delete: if isHandongUser()
+      allow update: if (
+        isHandongUser()
+        && resource.data.ownerId == request.auth.uid
+      ) || (
+        isHandongUser()
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'reserved'
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.reservedById == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reservedById', 'reservedByName', 'reservedAt', 'updatedAt'])
+      ) || (
+        isHandongUser()
+        && resource.data.status == 'reserved'
+        && resource.data.reservedById == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.reservedById == ''
+        && request.resource.data.reservedByName == ''
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reservedById', 'reservedByName', 'reservedAt', 'updatedAt'])
+      );
+      allow delete: if isHandongUser()
         && resource.data.ownerId == request.auth.uid;
     }
 

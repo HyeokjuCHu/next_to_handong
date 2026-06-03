@@ -28,9 +28,26 @@ firebase-debug.*.log
 ._*
 .Spotlight-V100
 .Trashes
+.fseventsd
+.TemporaryItems
+.DocumentRevisions-V100
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
 Icon?
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Local credentials / generated keys
+serviceAccountKey.json
+service-account*.json
+*service-account*.json
+firebase-adminsdk*.json
+google-credentials*.json

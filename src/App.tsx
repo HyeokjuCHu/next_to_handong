@@ -5,7 +5,7 @@ import {
   signOut,
   type User,
 } from 'firebase/auth'
-import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import './App.css'
 import { CampusMap } from './components/CampusMap'
 import { LocationPickerMap } from './components/LocationPickerMap'
@@ -34,6 +34,8 @@ import {
 } from './lib/firebase'
 import {
   approveDeliveryJoinRequest,
+  cancelShareReservation,
+  completeSharePost,
   createDeliveryParty,
   createSharePost,
   deleteDeliveryParty,
@@ -44,6 +46,7 @@ import {
   listenToSharePosts,
   listenToUserProfile,
   rejectDeliveryJoinRequest,
+  reserveSharePost,
   saveUserProfileSettings,
   submitDeliveryJoinRequest,
   syncUserProfile,
@@ -60,10 +63,27 @@ const deliveryFilters: Array<{ value: DeliveryFilter; label: string }> = [
   { value: 'social', label: 'Social 식사' },
 ]
 
+const deliveryCapacityOptions = [2, 3, 4, 5, 6, 7, 8]
+
 const shareFilters: Array<{ value: ShareFilter; label: string }> = [
   { value: 'all', label: '전체 나눔' },
   { value: 'ingredient', label: '식재료' },
   { value: 'supply', label: '생필품' },
+]
+
+const profileInterestOptions = [
+  '운동',
+  '음악',
+  '영화',
+  '독서',
+  '게임',
+  '요리',
+  '여행',
+  '사진',
+  '코딩',
+  '디자인',
+  '봉사',
+  '언어',
 ]
 
 function getModeLabel(mood: DeliveryMood) {
@@ -80,6 +100,10 @@ function getDefaultScheduleTime(view: ViewMode) {
 
 function isDeliveryItem(item: FeedItem): item is DeliveryParty {
   return item.kind === 'delivery'
+}
+
+function isActiveLifecycleStatus(status: FeedItem['status']) {
+  return status === 'open' || status === 'reserved'
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -109,6 +133,22 @@ function getFirestorePermissionHint(email?: string | null) {
 
 function getItemOwnerId(item: FeedItem) {
   return item.kind === 'delivery' ? item.hostId : item.ownerId
+}
+
+function getShareStatusLabel(post: SharePost, nowMs: number) {
+  if (post.status === 'reserved') {
+    return '예약중'
+  }
+
+  if (post.status === 'completed') {
+    return '나눔 완료'
+  }
+
+  if (post.expiresAtMs <= nowMs) {
+    return '시간 종료'
+  }
+
+  return getShareLabel(post.category)
 }
 
 function normalizePhoneNumber(value: string) {
@@ -179,15 +219,27 @@ function formatInterestText(interests: string[]) {
 }
 
 function isArchivedItem(item: FeedItem, nowMs: number) {
-  return item.status !== 'open' || item.expiresAtMs <= nowMs
+  if (isDeliveryItem(item) && item.members >= item.capacity) {
+    return true
+  }
+
+  return !isActiveLifecycleStatus(item.status) || item.expiresAtMs <= nowMs
 }
 
 function getArchiveLabel(item: FeedItem, nowMs: number) {
+  if (item.status === 'reserved') {
+    return '예약중'
+  }
+
   if (item.status === 'completed') {
     return '완료됨'
   }
 
   if (item.status === 'closed') {
+    return '마감됨'
+  }
+
+  if (isDeliveryItem(item) && item.members >= item.capacity) {
     return '마감됨'
   }
 
@@ -237,6 +289,7 @@ function createGenericSocialBrief(partyId: string): SocialConversationBrief {
 }
 
 function App() {
+  const navigate = useNavigate()
   const [activeView, setActiveView] = useState<ViewMode>('delivery')
   const [timelineView, setTimelineView] = useState<TimelineView>('current')
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all')
@@ -250,6 +303,7 @@ function App() {
     getDefaultScheduleTime('delivery'),
   )
   const [draftMood, setDraftMood] = useState<DeliveryMood>('silent')
+  const [draftCapacity, setDraftCapacity] = useState(4)
   const [draftCategory, setDraftCategory] = useState<ShareCategory>('ingredient')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [user, setUser] = useState<User | null>(auth?.currentUser ?? null)
@@ -282,6 +336,8 @@ function App() {
   >({})
   const [socialBriefLoading, setSocialBriefLoading] = useState(false)
   const [socialBriefMessage, setSocialBriefMessage] = useState('')
+  const [shareActionMessage, setShareActionMessage] = useState('')
+  const [isShareActionSubmitting, setIsShareActionSubmitting] = useState(false)
 
   const isSchoolUser = isAllowedSchoolEmail(user?.email)
   const realtimeConnected = deliveryListenerReady && shareListenerReady
@@ -305,16 +361,26 @@ function App() {
     visibleItems.find((item) => item.id === effectiveSelectedId) ?? visibleItems[0] ?? null
   const selectedDeliveryParty =
     selectedItem && isDeliveryItem(selectedItem) ? selectedItem : null
+  const selectedSharePost =
+    selectedItem && !isDeliveryItem(selectedItem) ? selectedItem : null
   const activeBoardLabel = activeView === 'delivery' ? '배달 동행' : '리쉐어 보드'
   const activeBoardCount = visibleItems.length
   const totalCurrentPosts = currentDeliveryFeed.length + currentShareFeed.length
   const totalPastPosts = pastDeliveryFeed.length + pastShareFeed.length
   const activeBoardHasPosts = activeView === 'delivery' ? sourceDelivery.length > 0 : sourceShare.length > 0
   const isEditing = editingId !== null
+  const editingDeliveryParty =
+    activeView === 'delivery' && editingId
+      ? deliveryFeed.find((item) => item.id === editingId) ?? null
+      : null
+  const draftCapacityMinimum = editingDeliveryParty?.members ?? 2
   const isOwnedByCurrentUser = Boolean(
     user && selectedItem && getItemOwnerId(selectedItem) === user.uid,
   )
   const isSelectedArchived = Boolean(selectedItem && isArchivedItem(selectedItem, nowMs))
+  const isShareReservedByCurrentUser = Boolean(
+    selectedSharePost && user && selectedSharePost.reservedById === user.uid,
+  )
   const profileReady = hasProfileDetails(profileSnapshot)
   const canCurrentUserViewSocialBrief = Boolean(
     selectedDeliveryParty &&
@@ -324,52 +390,43 @@ function App() {
       isSchoolUser &&
       (selectedDeliveryParty.hostId === user.uid || myJoinRequest?.status === 'approved'),
   )
-  const socialBrief = selectedDeliveryParty
-    ? socialBriefByPartyId[selectedDeliveryParty.id] ?? null
-    : null
+  const socialBriefCacheKey = selectedDeliveryParty
+    ? [
+        selectedDeliveryParty.id,
+        selectedDeliveryParty.members,
+        selectedDeliveryParty.hostId,
+        myJoinRequest?.status ?? 'none',
+      ].join(':')
+    : ''
+  const socialBrief = socialBriefCacheKey ? socialBriefByPartyId[socialBriefCacheKey] ?? null : null
   const mapStatus = platformReadiness.find((item) => item.id === 'kakao')
-  const heroMetrics = [
-    { value: `${currentDeliveryFeed.length}건`, label: '현재 배달 동행' },
-    { value: `${currentShareFeed.length}건`, label: '현재 리쉐어' },
+  const landingMetrics = [
     {
-      value: isSchoolUser ? (profileReady ? '설정됨' : '선택 입력') : '로그인 필요',
-      label: 'Social 프로필',
+      label: '배달 동행',
+      value: `${currentDeliveryFeed.length}건`,
+      caption: '진행 중',
+      tone: 'green',
     },
-  ]
-  const heroSignals = [
     {
-      title: '배달 동행',
-      description:
-        currentDeliveryFeed.length > 0
-          ? '지금 모집 중인 배달 파티를 바로 확인하고 참여 요청까지 보낼 수 있습니다.'
-          : '아직 열린 배달 파티가 없습니다. 첫 모집 글을 열면 여기부터 채워집니다.',
-      time:
-        currentDeliveryFeed.length > 0
-          ? `${currentDeliveryFeed.length}건 진행 중`
-          : '현재 비어 있음',
+      label: '리쉐어',
+      value: `${currentShareFeed.length}건`,
+      caption: '나눔 가능',
+      tone: 'green',
+    },
+    {
+      label: '전체',
+      value: `${totalCurrentPosts}건`,
+      caption: '현재 활동',
       tone: 'orange',
     },
-    {
-      title: '리쉐어 보드',
-      description:
-        currentShareFeed.length > 0
-          ? '남는 식재료와 생필품 글을 위치와 함께 바로 확인할 수 있습니다.'
-          : '아직 올라온 나눔 글이 없습니다. 남는 물품이 있다면 첫 글을 올려보세요.',
-      time:
-        currentShareFeed.length > 0 ? `${currentShareFeed.length}건 게시 중` : '현재 비어 있음',
-      tone: 'mint',
-    },
-    {
-      title: 'Social 프로필',
-      description: isSchoolUser
-        ? profileReady
-          ? '관심사와 전공이 저장되어 Social 식사 파티의 대화 추천에 활용됩니다.'
-          : '프로필은 선택 입력입니다. 비워 두면 처음 만난 사람용 가벼운 질문으로 대신 추천합니다.'
-        : `프로필 설정과 글쓰기는 @${schoolEmailDomain} 로그인 후 열립니다.`,
-      time: isSchoolUser ? (profileReady ? '프로필 활용 가능' : '선택 입력 가능') : '로그인 전',
-      tone: 'blue',
-    },
-  ] as const
+  ]
+  const landingDeliveryItems = currentDeliveryFeed.slice(0, 2)
+  const landingShareItems = currentShareFeed.slice(0, 2)
+  const landingMapItems: FeedItem[] = [...currentDeliveryFeed, ...currentShareFeed]
+  const landingSelectedItem =
+    landingMapItems.find((item) => item.id === selectedId) ?? landingMapItems[0] ?? null
+  const landingSelectedId = landingSelectedItem?.id ?? ''
+  const selectedProfileInterests = parseInterestText(profileInterestsText)
 
   useEffect(() => {
     void initAnalytics()
@@ -494,6 +551,7 @@ function App() {
     setJoinPhoneNumber('')
     setJoinRequestNote('')
     setJoinMessage('')
+    setShareActionMessage('')
     setJoinRequests([])
     setMyJoinRequest(null)
     setSocialBriefMessage('')
@@ -531,6 +589,7 @@ function App() {
   useEffect(() => {
     if (!selectedDeliveryParty || selectedDeliveryParty.mood !== 'social') {
       setSocialBriefLoading(false)
+      setSocialBriefMessage('')
       return
     }
 
@@ -539,8 +598,16 @@ function App() {
       return
     }
 
-    if (socialBriefByPartyId[selectedDeliveryParty.id]) {
+    const cacheKey = [
+      selectedDeliveryParty.id,
+      selectedDeliveryParty.members,
+      selectedDeliveryParty.hostId,
+      myJoinRequest?.status ?? 'none',
+    ].join(':')
+
+    if (socialBriefByPartyId[cacheKey]) {
       setSocialBriefLoading(false)
+      setSocialBriefMessage('')
       return
     }
 
@@ -557,7 +624,7 @@ function App() {
 
         setSocialBriefByPartyId((current) => ({
           ...current,
-          [selectedDeliveryParty.id]: brief,
+          [cacheKey]: brief,
         }))
       })
       .catch((error) => {
@@ -567,12 +634,12 @@ function App() {
 
         setSocialBriefByPartyId((current) => ({
           ...current,
-          [selectedDeliveryParty.id]: createGenericSocialBrief(selectedDeliveryParty.id),
+          [cacheKey]: createGenericSocialBrief(selectedDeliveryParty.id),
         }))
         setSocialBriefMessage(
           getErrorMessage(
             error,
-            'AI 추천 연결이 아직 준비되지 않아 기본 질문으로 먼저 보여드리고 있습니다.',
+            'AI 추천 연결에 문제가 있어 기본 질문으로 먼저 보여드리고 있습니다.',
           ),
         )
       })
@@ -585,7 +652,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canCurrentUserViewSocialBrief, selectedDeliveryParty, socialBriefByPartyId])
+  }, [canCurrentUserViewSocialBrief, myJoinRequest?.status, selectedDeliveryParty, socialBriefByPartyId])
 
   const resetComposer = (view: ViewMode = activeView) => {
     setEditingId(null)
@@ -595,6 +662,7 @@ function App() {
     setDraftNote('')
     setDraftScheduleTime(getDefaultScheduleTime(view))
     setDraftMood('silent')
+    setDraftCapacity(4)
     setDraftCategory('ingredient')
   }
 
@@ -648,6 +716,17 @@ function App() {
       (draftPoint ? `${draftPoint.building} 인근 직접 지정` : '학생회관 앞')
     const cleanNote = draftNote.trim()
     const cleanScheduleTime = draftScheduleTime || getDefaultScheduleTime(activeView)
+    const currentEditingDelivery =
+      activeView === 'delivery' && editingId
+        ? deliveryFeed.find((item) => item.id === editingId)
+        : null
+    const cleanCapacity =
+      activeView === 'delivery'
+        ? Math.max(
+            currentEditingDelivery?.members ?? 2,
+            Math.min(8, Math.max(2, Math.trunc(draftCapacity))),
+          )
+        : 4
 
     if (!cleanTitle) {
       setSubmitMessage('제목이나 메뉴 이름을 먼저 입력해 주세요.')
@@ -683,6 +762,7 @@ function App() {
             note: cleanNote,
             mood: draftMood,
             deadlineTime: cleanScheduleTime,
+            capacity: cleanCapacity,
             point: resolvedDraftPoint,
           })
         } else {
@@ -692,6 +772,7 @@ function App() {
             note: cleanNote,
             mood: draftMood,
             deadlineTime: cleanScheduleTime,
+            capacity: cleanCapacity,
             point: resolvedDraftPoint,
           })
           setSelectedId(createdId)
@@ -767,6 +848,7 @@ function App() {
 
     if (item.kind === 'delivery') {
       setDraftMood(item.mood)
+      setDraftCapacity(Math.max(item.capacity, item.members))
       setDraftScheduleTime(item.recruitUntilTime)
     } else {
       setDraftCategory(item.category)
@@ -906,6 +988,77 @@ function App() {
     }
   }
 
+  const handleReserveSharePost = async () => {
+    if (!selectedSharePost || !user || !isSchoolUser) {
+      setShareActionMessage(
+        `리쉐어 예약은 학교 메일(@${schoolEmailDomain})로 로그인한 뒤 사용할 수 있어요.`,
+      )
+      return
+    }
+
+    if (isSelectedArchived) {
+      setShareActionMessage('지난 글은 새 예약을 받을 수 없습니다.')
+      return
+    }
+
+    setIsShareActionSubmitting(true)
+    setShareActionMessage('')
+
+    try {
+      await reserveSharePost(user, selectedSharePost)
+      setShareActionMessage('예약했습니다. 이제 이 글은 예약중으로 표시됩니다.')
+    } catch (error) {
+      setShareActionMessage(getErrorMessage(error, '예약 처리에 실패했습니다.'))
+    } finally {
+      setIsShareActionSubmitting(false)
+    }
+  }
+
+  const handleCancelShareReservation = async () => {
+    if (!selectedSharePost || !user || !isSchoolUser) {
+      setShareActionMessage('예약 해제는 로그인 후 사용할 수 있습니다.')
+      return
+    }
+
+    setIsShareActionSubmitting(true)
+    setShareActionMessage('')
+
+    try {
+      await cancelShareReservation(user, selectedSharePost)
+      setShareActionMessage('예약을 해제했습니다. 다시 예약 가능한 상태로 열렸습니다.')
+    } catch (error) {
+      setShareActionMessage(getErrorMessage(error, '예약을 해제하지 못했습니다.'))
+    } finally {
+      setIsShareActionSubmitting(false)
+    }
+  }
+
+  const handleCompleteSharePost = async () => {
+    if (!selectedSharePost || !user || !isSchoolUser) {
+      setShareActionMessage('나눔 완료 처리는 로그인 후 사용할 수 있습니다.')
+      return
+    }
+
+    const confirmed = window.confirm('이 나눔 글을 완료 처리할까요? 지난 글로 이동합니다.')
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsShareActionSubmitting(true)
+    setShareActionMessage('')
+
+    try {
+      await completeSharePost(selectedSharePost.id)
+      setTimelineView('past')
+      setShareActionMessage('나눔을 완료 처리했습니다.')
+    } catch (error) {
+      setShareActionMessage(getErrorMessage(error, '나눔 완료 처리에 실패했습니다.'))
+    } finally {
+      setIsShareActionSubmitting(false)
+    }
+  }
+
   const handleSaveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -940,82 +1093,48 @@ function App() {
     }
   }
 
+  const toggleProfileInterest = (interest: string) => {
+    const currentInterests = parseInterestText(profileInterestsText)
+    const nextInterests = currentInterests.includes(interest)
+      ? currentInterests.filter((item) => item !== interest)
+      : [...currentInterests, interest]
+
+    setProfileInterestsText(formatInterestText(nextInterests))
+  }
+
   const renderHeader = () => (
-    <header className="topbar">
-      <div>
-        <p className="brand-tag">HGU Campus Commons</p>
-        <Link className="brand-name" to="/">
-          한동곁
+    <header className="site-header">
+      <div className="site-header__inner">
+        <Link className="site-brand" to="/">
+          <span className="site-brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path d="M9 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+              <path d="M15.8 12.2a2.55 2.55 0 1 0 0-5.1 2.55 2.55 0 0 0 0 5.1Z" />
+              <path d="M3.8 19.2c.45-3.05 2.45-5.05 5.2-5.05s4.75 2 5.2 5.05H3.8Z" />
+              <path d="M13.8 19.2c-.16-1.42-.62-2.64-1.34-3.61.86-.86 1.98-1.32 3.34-1.32 2.25 0 3.93 1.85 4.32 4.93h-6.32Z" />
+            </svg>
+          </span>
+          <span>한띵동</span>
         </Link>
-      </div>
 
-      <div className="topbar-actions">
-        <nav className="topnav">
-          <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}>
-            홈
-          </NavLink>
-          <NavLink to="/board" className={({ isActive }) => (isActive ? 'is-active' : '')}>
-            캠퍼스 보드
-          </NavLink>
-          <NavLink to="/profile" className={({ isActive }) => (isActive ? 'is-active' : '')}>
+        <nav className="site-nav" aria-label="주요 메뉴">
+          <Link className="site-nav__button site-nav__button--primary" to="/board">
+            보드 보기
+          </Link>
+          <Link className="site-nav__button" to="/profile">
             프로필
-          </NavLink>
-          <Link to="/board#composer-card">글 올리기</Link>
+          </Link>
         </nav>
-
-        <div className="auth-card">
-          <div className="auth-card__copy">
-            <span className={isSchoolUser ? 'status-pill status-pill--live' : 'status-pill'}>
-              {isSchoolUser ? '학교 인증 완료' : authReady ? '로그인 필요' : '상태 확인 중'}
-            </span>
-            <strong>{user ? user.displayName ?? '한동 학생' : '학교 계정으로 로그인'}</strong>
-            <span>
-              {user?.email ??
-                `글쓰기와 실시간 서비스 이용은 @${schoolEmailDomain} 계정으로 로그인하면 됩니다.`}
-            </span>
-          </div>
-          <button className="ghost-button" type="button" onClick={user ? handleSignOut : handleSignIn}>
-            {user ? '로그아웃' : 'Google 로그인'}
-          </button>
-        </div>
       </div>
     </header>
   )
 
-  const renderNoticeStrip = () => (
-    <section className="notice-strip">
-      <article className="notice-card">
-        <span className="notice-label">캠퍼스 보드</span>
-        <strong>
-          {realtimeConnected
-            ? totalCurrentPosts > 0
-              ? `현재 글 ${totalCurrentPosts}건 · 지난 글 ${totalPastPosts}건`
-              : '아직 등록된 글이 없습니다'
-            : '게시판을 불러오는 중입니다'}
-        </strong>
-        <p>
-          {realtimeConnected
-            ? totalCurrentPosts > 0
-              ? '시간이 지나면 현재 글에서 자동으로 빠지고, 지난 글 탭에서 다시 확인할 수 있습니다.'
-              : '첫 배달 파티나 나눔 글이 등록되면 이 화면부터 바로 채워집니다.'
-            : '잠시 후 최신 글이 자동으로 표시됩니다.'}
-        </p>
-      </article>
-      <article className="notice-card">
-        <span className="notice-label">내 이용 상태</span>
-        <strong>
-          학교 인증 {isSchoolUser ? '사용 가능' : '로그인 필요'} · 프로필{' '}
-          {isSchoolUser ? (profileReady ? '설정됨' : '선택 입력 가능') : '대기 중'}
-        </strong>
-        <p>
-          {dataError ||
-            authMessage ||
-            (isSchoolUser
-              ? 'Social 식사에서는 승인된 참여자끼리 프로필을 바탕으로 대화 추천을 받을 수 있습니다.'
-              : '둘러보기는 누구나 가능하고, 글쓰기와 프로필 설정은 학교 메일 로그인 후 사용할 수 있습니다.')}
-        </p>
-      </article>
-    </section>
+  const renderStatusAlert = () => (
+    dataError || authMessage ? (
+      <section className="status-alert page-container">
+        <p>{dataError || authMessage}</p>
+      </section>
+    ) : null
   )
 
   const renderSocialPanel = () => {
@@ -1028,11 +1147,15 @@ function App() {
     return (
       <div className="social-panel">
         <div className="join-panel__header">
-          <div>
-            <strong>같이 먹기 대화 거리</strong>
-            <p>프로필이 충분하면 맞춤 질문을, 적으면 처음 만난 사람용 가벼운 질문을 추천합니다.</p>
+          <strong>같이 먹기 대화 거리</strong>
+          <div className="social-panel__meta">
+            {socialBrief ? (
+              <span className="panel-chip">
+                {socialBrief.usedFallbackPrompt ? '가벼운 질문' : '맞춤 질문'}
+              </span>
+            ) : null}
+            <span className="join-count">{selectedDeliveryParty.members}명</span>
           </div>
-          <span className="join-count">{selectedDeliveryParty.members}명</span>
         </div>
 
         {!isSchoolUser ? (
@@ -1078,15 +1201,6 @@ function App() {
                 </article>
               ))}
             </div>
-            {socialBrief.usedFallbackPrompt ? (
-              <p className="helper-text">
-                프로필 정보가 적어 처음 만난 사람끼리 부담 없이 꺼낼 수 있는 질문으로 준비했어요.
-              </p>
-            ) : (
-              <p className="helper-text">
-                참여자 프로필을 반영해 조금 더 자연스럽게 시작할 만한 질문을 골라드렸어요.
-              </p>
-            )}
             {socialBriefMessage ? <p className="helper-text">{socialBriefMessage}</p> : null}
           </>
         ) : socialBriefMessage ? (
@@ -1098,79 +1212,139 @@ function App() {
     )
   }
 
+  const renderLandingCard = (item: FeedItem) => (
+    <Link
+      className="landing-post-card"
+      key={item.id}
+      to="/board"
+      onClick={() => {
+        setActiveView(item.kind === 'delivery' ? 'delivery' : 'share')
+        setTimelineView('current')
+        setSelectedId(item.id)
+      }}
+    >
+      <div className="landing-post-card__top">
+        <strong>{item.title}</strong>
+        <span>
+          {item.kind === 'delivery'
+            ? getModeLabel(item.mood)
+            : getShareStatusLabel(item, nowMs)}
+        </span>
+      </div>
+      <p>
+        {item.kind === 'delivery'
+          ? `${item.meetingPoint} · ${item.recruitUntilTime} 마감`
+          : `${item.location} · ${item.quantity}`}
+      </p>
+      <div className="landing-post-card__bottom">
+        <span>{item.kind === 'delivery' ? `${item.members}/${item.capacity}명` : item.owner}</span>
+        <span>상세보기</span>
+      </div>
+    </Link>
+  )
+
+  const renderLandingEmptyCard = (label: string) => (
+    <div className="landing-post-card landing-post-card--empty">
+      <strong>{label}</strong>
+      <p>새 글이 올라오면 이곳에 바로 표시됩니다.</p>
+    </div>
+  )
+
+  const handleLandingMapSelect = (id: string) => {
+    const item = landingMapItems.find((candidate) => candidate.id === id)
+
+    if (!item) {
+      return
+    }
+
+    setActiveView(item.kind === 'delivery' ? 'delivery' : 'share')
+    setTimelineView('current')
+    setSelectedId(id)
+    navigate('/board')
+  }
+
   const homePage = (
     <div className="app-shell">
       {renderHeader()}
-      {renderNoticeStrip()}
+      {renderStatusAlert()}
 
-      <main id="top">
-        <section className="hero-section">
-          <div className="hero-copy">
-            <p className="eyebrow">배달도 같이, 나눔도 가까이</p>
-            <h1 className="hero-title">
-              <span className="hero-title__row">
-                <span className="hero-title__letter">한</span>
-                <span className="hero-title__text">한 번의 주문도 함께 모이면 가볍게</span>
-              </span>
-              <span className="hero-title__row">
-                <span className="hero-title__letter">동</span>
-                <span className="hero-title__text">동선이 비슷한 학우들과 빠르게 연결되고</span>
-              </span>
-              <span className="hero-title__row">
-                <span className="hero-title__letter">곁</span>
-                <span className="hero-title__text">곁에 있는 이웃과 나눔까지 이어지는 한동곁</span>
-              </span>
-            </h1>
-            <p className="hero-description">
-              <strong>한동곁</strong>은 같이 주문할 사람을 찾고, 남는 물품을 가까운 학우와 나누고,
-              Social 식사에서는 대화거리까지 바로 확인할 수 있도록 만든 한동대 생활 보드입니다.
-            </p>
-            <div className="hero-pill-row">
-              <span className="hero-pill">배달 동행</span>
-              <span className="hero-pill">리쉐어</span>
-              <span className="hero-pill">현재글 / 지난글 분리</span>
-              <span className="hero-pill">Social 대화 추천</span>
-            </div>
-            <div className="hero-actions">
-              <Link className="primary-action" to="/board">
-                보드 둘러보기
-              </Link>
-              <Link className="secondary-action" to="/profile">
-                프로필 설정하기
-              </Link>
-            </div>
-            <div className="metric-grid">
-              {heroMetrics.map((metric) => (
-                <article className="metric-card" key={metric.label}>
-                  <strong>{metric.value}</strong>
-                  <span>{metric.label}</span>
-                </article>
-              ))}
-            </div>
+      <main id="top" className="home-page page-container">
+        <section className="landing-title">
+          <h1>
+            HAN CAMPUS BOARD
+            <span>한띵동</span>
+          </h1>
+          <p>한동대학교 학생을 위한 캠퍼스 생활 웹 보드</p>
+        </section>
+
+        <section className="landing-stats" aria-label="현재 보드 현황">
+          {landingMetrics.map((metric) => (
+            <article className="landing-stat-card" key={metric.label}>
+              <span>{metric.label}</span>
+              <strong className={`landing-stat-card__value landing-stat-card__value--${metric.tone}`}>
+                {metric.value}
+              </strong>
+              <p>{metric.caption}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="landing-cta">
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24 5 28.8 19.2 43 24l-14.2 4.8L24 43l-4.8-14.2L5 24l14.2-4.8L24 5Z" />
+            <path d="M39 8v8M35 12h8M10 34v6M7 37h6" />
+          </svg>
+          <h2>지금 시작하세요</h2>
+          <p>배달 동행으로 함께 주문하고, 리쉐어로 필요한 물건을 나눠보세요</p>
+          <Link className="landing-cta__button" to="/board">
+            보드 둘러보기
+          </Link>
+        </section>
+
+        <section className="landing-board">
+          <div className="landing-section-title">
+            <h2>캠퍼스 보드</h2>
+            <span>{realtimeConnected ? '현재 진행 중' : '불러오는 중'}</span>
           </div>
+          <div className="landing-map-shell">
+            <CampusMap
+              items={landingMapItems}
+              selectedId={landingSelectedId}
+              selectedItem={landingSelectedItem ?? undefined}
+              onSelect={handleLandingMapSelect}
+            />
+          </div>
+        </section>
 
-          <div className="hero-surface">
-            <div className="surface-header">
-              <div>
-                <p className="surface-kicker">오늘 캠퍼스 흐름</p>
-                <h2>지금 캠퍼스에서 열린 연결</h2>
-              </div>
-              <span className="status-pill status-pill--live">
-                {realtimeConnected ? '실시간 반영 중' : '불러오는 중'}
-              </span>
-            </div>
-            <div className="signal-list">
-              {heroSignals.map((signal) => (
-                <article className="signal-card" key={signal.title}>
-                  <div className="signal-topline">
-                    <span className={`signal-dot signal-dot--${signal.tone}`}></span>
-                    <p>{signal.time}</p>
-                  </div>
-                  <h3>{signal.title}</h3>
-                  <p>{signal.description}</p>
-                </article>
-              ))}
-            </div>
+        <section className="landing-list-section">
+          <div className="landing-list-header">
+            <h2>배달 동행</h2>
+            <Link to="/board">전체 보기</Link>
+          </div>
+          <div className="landing-card-grid">
+            {landingDeliveryItems.length > 0
+              ? landingDeliveryItems.map(renderLandingCard)
+              : renderLandingEmptyCard('아직 열린 배달 동행이 없습니다')}
+          </div>
+        </section>
+
+        <section className="landing-list-section">
+          <div className="landing-list-header">
+            <h2>리쉐어</h2>
+            <Link
+              to="/board"
+              onClick={() => {
+                setActiveView('share')
+                setTimelineView('current')
+              }}
+            >
+              전체 보기
+            </Link>
+          </div>
+          <div className="landing-card-grid">
+            {landingShareItems.length > 0
+              ? landingShareItems.map(renderLandingCard)
+              : renderLandingEmptyCard('아직 등록된 리쉐어가 없습니다')}
           </div>
         </section>
       </main>
@@ -1180,35 +1354,27 @@ function App() {
   const boardPage = (
     <div className="app-shell">
       {renderHeader()}
-      {renderNoticeStrip()}
+      {renderStatusAlert()}
 
-      <main id="top">
+      <main id="top" className="page-container board-main">
         <section className="panel board-page-intro">
           <div>
             <p className="eyebrow">Campus Board</p>
-            <h1>현재 글과 지난 글을 나눠서 더 깔끔하게 확인하세요</h1>
-            <p>
-              지금 모집 중인 글은 빠르게 보고, 시간이 지난 글은 따로 모아 다시 찾아볼 수 있습니다.
-            </p>
+            <h1>캠퍼스 보드</h1>
           </div>
           <div className="board-page-intro__meta">
             <span className="status-pill status-pill--live">현재 {totalCurrentPosts}건</span>
-            <span className="status-pill">지난 글 {totalPastPosts}건</span>
-            <Link className="secondary-action" to="/profile">
-              프로필 설정
-            </Link>
+            <span className="status-pill">지난 {totalPastPosts}건</span>
+            <span className="status-pill">{isSchoolUser ? '학교 인증' : '둘러보기'}</span>
           </div>
         </section>
 
         <section className="dashboard-section" id="dashboard">
-          <div className="section-heading">
+          <div className="section-heading section-heading--compact">
             <div>
               <p className="eyebrow">Campus Board</p>
-              <h2>학생 글, 수령 위치, 참여 흐름을 한 화면에서 확인하세요</h2>
+              <h2>{activeBoardLabel}</h2>
             </div>
-            <p>
-              배달 동행과 리쉐어 글을 지도와 함께 보고, 필요한 경우 바로 새 글을 등록할 수 있습니다.
-            </p>
           </div>
 
           <div className="board-controls">
@@ -1321,12 +1487,14 @@ function App() {
                       className={
                         isDeliveryItem(selectedItem)
                           ? `status-pill status-pill--${selectedItem.mood}`
-                          : `status-pill status-pill--${selectedItem.category}`
+                          : selectedItem.status === 'reserved'
+                            ? 'status-pill status-pill--reserved'
+                            : `status-pill status-pill--${selectedItem.category}`
                       }
                     >
                       {isDeliveryItem(selectedItem)
                         ? getModeLabel(selectedItem.mood)
-                        : getShareLabel(selectedItem.category)}
+                        : getShareStatusLabel(selectedItem, nowMs)}
                     </span>
                   </div>
                 ) : null}
@@ -1555,6 +1723,10 @@ function App() {
                       <strong>{getShareLabel(selectedItem.category)}</strong>
                     </div>
                     <div>
+                      <span>진행 상태</span>
+                      <strong>{getShareStatusLabel(selectedItem, nowMs)}</strong>
+                    </div>
+                    <div>
                       <span>수령 위치</span>
                       <strong>{selectedItem.location}</strong>
                     </div>
@@ -1565,6 +1737,10 @@ function App() {
                     <div>
                       <span>작성자</span>
                       <strong>{selectedItem.owner}</strong>
+                    </div>
+                    <div>
+                      <span>예약자</span>
+                      <strong>{selectedItem.reservedByName || '아직 없음'}</strong>
                     </div>
                     <div>
                       <span>수령 가능 시간</span>
@@ -1581,6 +1757,86 @@ function App() {
                         {badge}
                       </span>
                     ))}
+                  </div>
+                  <div className="join-panel">
+                    <div className="join-panel__header">
+                      <div>
+                        <strong>리쉐어 상태</strong>
+                        <p>
+                          {selectedItem.status === 'reserved'
+                            ? selectedItem.reservedByName
+                              ? `${selectedItem.reservedByName}님이 예약 중입니다.`
+                              : '현재 예약이 진행 중입니다.'
+                            : '필요한 학생이 바로 예약할 수 있습니다.'}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          selectedItem.status === 'reserved'
+                            ? 'join-status-chip join-status-chip--approved'
+                            : 'join-status-chip join-status-chip--pending'
+                        }
+                      >
+                        {selectedItem.status === 'reserved' ? '예약중' : '예약 가능'}
+                      </span>
+                    </div>
+                    {shareActionMessage ? <p className="join-feedback">{shareActionMessage}</p> : null}
+                    {isOwnedByCurrentUser ? (
+                      <div className="share-action-group">
+                        {!isSelectedArchived ? (
+                          <button
+                            className="ghost-button detail-action"
+                            type="button"
+                            onClick={handleCompleteSharePost}
+                            disabled={isSubmitting || isShareActionSubmitting}
+                          >
+                            {isShareActionSubmitting ? '처리 중...' : '나눔 완료'}
+                          </button>
+                        ) : null}
+                        {!isSelectedArchived && selectedItem.status === 'reserved' ? (
+                          <button
+                            className="ghost-button detail-action"
+                            type="button"
+                            onClick={handleCancelShareReservation}
+                            disabled={isSubmitting || isShareActionSubmitting}
+                          >
+                            {isShareActionSubmitting ? '처리 중...' : '예약 해제'}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : !isSchoolUser ? (
+                      <p className="join-empty">
+                        예약은 학교 메일(@{schoolEmailDomain}) 로그인 후 사용할 수 있어요.
+                      </p>
+                    ) : isSelectedArchived ? (
+                      <p className="join-empty">지난 글은 새 예약을 받을 수 없습니다.</p>
+                    ) : selectedItem.status === 'open' ? (
+                      <button
+                        className="submit-button join-submit"
+                        type="button"
+                        onClick={handleReserveSharePost}
+                        disabled={isShareActionSubmitting}
+                      >
+                        {isShareActionSubmitting ? '예약 중...' : '예약하기'}
+                      </button>
+                    ) : isShareReservedByCurrentUser ? (
+                      <div className="share-action-group">
+                        <p className="join-empty">내가 예약한 글입니다. 필요하면 예약을 취소할 수 있어요.</p>
+                        <button
+                          className="ghost-button detail-action"
+                          type="button"
+                          onClick={handleCancelShareReservation}
+                          disabled={isShareActionSubmitting}
+                        >
+                          {isShareActionSubmitting ? '처리 중...' : '예약 취소'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="join-empty">
+                        다른 학우가 예약 중입니다
+                        {selectedItem.reservedAtLabel ? ` · ${selectedItem.reservedAtLabel}` : ''}.
+                      </p>
+                    )}
                   </div>
                   {isOwnedByCurrentUser ? (
                     <div className="detail-actions">
@@ -1643,7 +1899,7 @@ function App() {
                           ? getArchiveLabel(item, nowMs)
                           : item.kind === 'delivery'
                             ? getModeLabel(item.mood)
-                            : getShareLabel(item.category)}
+                            : getShareStatusLabel(item, nowMs)}
                       </span>
                     </button>
                   ))
@@ -1722,6 +1978,32 @@ function App() {
                   onChange={(event) => setDraftScheduleTime(event.target.value)}
                 />
               </label>
+
+              {activeView === 'delivery' ? (
+                <label className="field-label">
+                  모집 인원
+                  <select
+                    value={draftCapacity}
+                    onChange={(event) => setDraftCapacity(Number(event.target.value))}
+                  >
+                    {deliveryCapacityOptions.map((capacity) => (
+                      <option
+                        key={capacity}
+                        value={capacity}
+                        disabled={capacity < draftCapacityMinimum}
+                      >
+                        총 {capacity}명
+                      </option>
+                    ))}
+                  </select>
+                  <span className="field-help">
+                    모집자를 포함한 총 인원입니다.
+                    {editingDeliveryParty && editingDeliveryParty.members > 1
+                      ? ` 현재 ${editingDeliveryParty.members}명이 승인되어 그보다 작게 줄일 수 없습니다.`
+                      : ''}
+                  </span>
+                </label>
+              ) : null}
 
               <div className="field-meta">
                 <span>
@@ -1840,184 +2122,117 @@ function App() {
 
   const profilePage = (
     <div className="app-shell">
-      {renderHeader()}
-      {renderNoticeStrip()}
+      <main id="top" className="profile-screen">
+        <div className="profile-titlebar">
+          <Link className="profile-back-link" to="/">
+            <span aria-hidden="true">←</span>
+            <span>프로필 설정</span>
+          </Link>
+          {user ? (
+            <div className="profile-titlebar__actions">
+              <span className="profile-status-chip">{profileReady ? '저장 완료' : '선택 입력'}</span>
+              <button className="profile-logout-button" type="button" onClick={handleSignOut}>
+                로그아웃
+              </button>
+            </div>
+          ) : (
+            <span className="profile-status-chip">{authReady ? '로그인 전' : '확인 중'}</span>
+          )}
+        </div>
 
-      <main id="top">
-        <section className="panel board-page-intro">
-          <div>
-            <p className="eyebrow">Profile Settings</p>
-            <h1>Social 식사를 더 자연스럽게 만드는 선택형 프로필</h1>
-            <p>
-              학번, 고향, 전공, 관심사, 자기소개는 모두 선택 입력입니다. 비워 두면 처음 만난 사람끼리
-              편하게 시작할 수 있는 질문으로 대신 추천합니다.
-            </p>
-          </div>
-          <div className="board-page-intro__meta">
-            <span className={profileReady ? 'status-pill status-pill--live' : 'status-pill'}>
-              {profileReady ? '프로필 설정됨' : '선택 입력'}
-            </span>
-            {isSchoolUser ? (
-              <Link className="secondary-action" to="/board">
-                보드로 이동
-              </Link>
-            ) : null}
-          </div>
-        </section>
+        {renderStatusAlert()}
 
         {!isSchoolUser ? (
-          <section className="dashboard-section">
-            <article className="panel profile-login-card">
-              <p className="panel-kicker">School Login</p>
-              <h3>학교 계정으로 로그인하면 프로필을 설정할 수 있어요</h3>
-              <p>
-                프로필은 Social 식사에서 참여자 소개와 대화 추천을 만드는 데 사용됩니다. 로그인하지 않아도
-                보드 둘러보기는 계속 가능합니다.
-              </p>
-              <button className="submit-button profile-login-button" type="button" onClick={handleSignIn}>
-                Google 로그인
-              </button>
-            </article>
+          <section className="profile-card profile-login-card">
+            <h1>학교 계정으로 로그인</h1>
+            <p>@{schoolEmailDomain} 계정으로 로그인하면 프로필을 저장할 수 있습니다.</p>
+            <button
+              className="profile-save-button"
+              type="button"
+              onClick={handleSignIn}
+              disabled={!authReady}
+            >
+              {authReady ? 'Google 로그인' : '로그인 준비 중...'}
+            </button>
           </section>
         ) : (
-          <section className="dashboard-section profile-layout">
-            <form className="panel profile-form-card" onSubmit={handleSaveProfile}>
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Editable Profile</p>
-                  <h3>내 프로필 설정</h3>
-                </div>
-                <span className="panel-chip">선택 입력</span>
+          <form className="profile-card profile-form-card" onSubmit={handleSaveProfile}>
+            <label className="profile-field">
+              <span>
+                학번 <em>*</em>
+              </span>
+              <input
+                value={profileDraft.studentId}
+                onChange={(event) =>
+                  setProfileDraft((current) => ({ ...current, studentId: event.target.value }))
+                }
+                placeholder="예: 22100123"
+              />
+            </label>
+
+            <label className="profile-field">
+              <span>
+                전공 <em>*</em>
+              </span>
+              <input
+                value={profileDraft.major}
+                onChange={(event) =>
+                  setProfileDraft((current) => ({ ...current, major: event.target.value }))
+                }
+                placeholder="예: 전산전자공학부"
+              />
+            </label>
+
+            <label className="profile-field">
+              <span>고향</span>
+              <input
+                value={profileDraft.hometown}
+                onChange={(event) =>
+                  setProfileDraft((current) => ({ ...current, hometown: event.target.value }))
+                }
+                placeholder="예: 서울"
+              />
+            </label>
+
+            <div className="profile-field">
+              <span>관심사 (복수 선택 가능)</span>
+              <div className="profile-interest-grid">
+                {profileInterestOptions.map((interest) => {
+                  const isSelected = selectedProfileInterests.includes(interest)
+
+                  return (
+                    <button
+                      className={isSelected ? 'profile-interest-chip is-selected' : 'profile-interest-chip'}
+                      key={interest}
+                      type="button"
+                      onClick={() => toggleProfileInterest(interest)}
+                    >
+                      {interest}
+                    </button>
+                  )
+                })}
               </div>
+            </div>
 
-              <label className="field-label">
-                학번
-                <input
-                  value={profileDraft.studentId}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({ ...current, studentId: event.target.value }))
-                  }
-                  placeholder="예: 22학번 또는 22100000"
-                />
-              </label>
+            <label className="profile-field">
+              <span>한 줄 소개</span>
+              <textarea
+                value={profileDraft.bio}
+                onChange={(event) =>
+                  setProfileDraft((current) => ({ ...current, bio: event.target.value }))
+                }
+                placeholder="자신을 소개하는 한 줄을 적어주세요"
+                rows={4}
+              />
+            </label>
 
-              <label className="field-label">
-                전공
-                <input
-                  value={profileDraft.major}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({ ...current, major: event.target.value }))
-                  }
-                  placeholder="예: 전산전자공학부"
-                />
-              </label>
+            <button className="profile-save-button" type="submit" disabled={isProfileSaving}>
+              <span aria-hidden="true">▣</span>
+              {isProfileSaving ? '저장 중...' : '저장하기'}
+            </button>
 
-              <label className="field-label">
-                고향
-                <input
-                  value={profileDraft.hometown}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({ ...current, hometown: event.target.value }))
-                  }
-                  placeholder="예: 부산, 대전, 제주"
-                />
-              </label>
-
-              <label className="field-label">
-                관심사
-                <input
-                  value={profileInterestsText}
-                  onChange={(event) => setProfileInterestsText(event.target.value)}
-                  placeholder="예: 농구, 밴드, 영화, 산책"
-                />
-              </label>
-
-              <label className="field-label">
-                한 줄 소개
-                <textarea
-                  value={profileDraft.bio}
-                  onChange={(event) =>
-                    setProfileDraft((current) => ({ ...current, bio: event.target.value }))
-                  }
-                  placeholder="예: 새로운 사람 만나는 걸 좋아하고, 같이 맛집 찾는 것도 좋아해요."
-                  rows={5}
-                />
-              </label>
-
-              <button className="submit-button" type="submit" disabled={isProfileSaving}>
-                {isProfileSaving ? '저장 중...' : '프로필 저장'}
-              </button>
-
-              {profileMessage ? <p className="helper-text helper-text--strong">{profileMessage}</p> : null}
-            </form>
-
-            <aside className="panel profile-preview-card">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Preview</p>
-                  <h3>Social 식사에서 보이는 정보</h3>
-                </div>
-                <span className="panel-chip">승인된 파티에서 활용</span>
-              </div>
-
-              <div className="profile-identity">
-                {profileSnapshot?.photoURL || user?.photoURL ? (
-                  <img
-                    className="profile-avatar"
-                    src={profileSnapshot?.photoURL || user?.photoURL || ''}
-                    alt="프로필"
-                  />
-                ) : (
-                  <div className="profile-avatar profile-avatar--placeholder">
-                    {(user?.displayName ?? '한').slice(0, 1)}
-                  </div>
-                )}
-                <div>
-                  <strong>{profileSnapshot?.displayName ?? user?.displayName ?? '한동 학생'}</strong>
-                  <p>{user?.email ?? `@${schoolEmailDomain} 로그인 후 연결됩니다.`}</p>
-                </div>
-              </div>
-
-              <div className="profile-summary-grid">
-                <div>
-                  <span>학번</span>
-                  <strong>{profileDraft.studentId || '미입력'}</strong>
-                </div>
-                <div>
-                  <span>전공</span>
-                  <strong>{profileDraft.major || '미입력'}</strong>
-                </div>
-                <div>
-                  <span>고향</span>
-                  <strong>{profileDraft.hometown || '미입력'}</strong>
-                </div>
-                <div>
-                  <span>관심사</span>
-                  <strong>
-                    {parseInterestText(profileInterestsText).length > 0
-                      ? parseInterestText(profileInterestsText).join(', ')
-                      : '미입력'}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="preview-box">
-                <span className="preview-title">한 줄 소개</span>
-                <p className="profile-preview-copy">
-                  {profileDraft.bio || '아직 작성한 소개가 없습니다. 빈 상태면 처음 만난 사람용 질문으로 추천됩니다.'}
-                </p>
-              </div>
-
-              <div className="preview-box">
-                <span className="preview-title">Social 식사에서 활용되는 방식</span>
-                <div className="helper-list">
-                  <p>승인된 참여자끼리만 프로필 요약과 대화 추천을 확인할 수 있습니다.</p>
-                  <p>정보가 적으면 Gemini가 처음 만난 사람끼리 할 만한 가벼운 질문을 대신 준비합니다.</p>
-                  <p>프로필은 언제든 수정 가능하고, 비워둬도 서비스 이용은 그대로 가능합니다.</p>
-                </div>
-              </div>
-            </aside>
-          </section>
+            {profileMessage ? <p className="profile-message">{profileMessage}</p> : null}
+          </form>
         )}
       </main>
     </div>

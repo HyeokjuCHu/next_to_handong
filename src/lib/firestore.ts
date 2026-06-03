@@ -36,6 +36,7 @@ interface CreateDeliveryInput {
   note: string
   mood: DeliveryMood
   deadlineTime: string
+  capacity: number
   point?: CampusPoint
 }
 
@@ -83,7 +84,11 @@ function buildExpiryMs(time: string, baseMs = Date.now()) {
 }
 
 function asPostStatus(value: unknown, fallback: PostLifecycleStatus = 'open') {
-  return value === 'closed' || value === 'completed' || value === 'expired' || value === 'open'
+  return value === 'closed' ||
+    value === 'completed' ||
+    value === 'expired' ||
+    value === 'open' ||
+    value === 'reserved'
     ? value
     : fallback
 }
@@ -94,6 +99,21 @@ function asString(value: unknown, fallback: string) {
 
 function asNumber(value: unknown, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function normalizeDeliveryCapacity(value: unknown, fallback = 4) {
+  const numberValue =
+    typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : fallback
+
+  if (!Number.isFinite(numberValue)) {
+    return fallback
+  }
+
+  return Math.min(8, Math.max(2, Math.trunc(numberValue)))
 }
 
 function asStringArray(value: unknown, fallback: string[]) {
@@ -108,11 +128,11 @@ function asStringArray(value: unknown, fallback: string[]) {
   return filtered.length > 0 ? filtered : fallback
 }
 
-function formatRelativeTime(value: unknown) {
+function formatRelativeTime(value: unknown, fallback = '방금 등록됨') {
   const timestamp = value as { toDate?: () => Date } | null
 
   if (!timestamp || typeof timestamp.toDate !== 'function') {
-    return '방금 등록됨'
+    return fallback
   }
 
   const date = timestamp.toDate()
@@ -241,6 +261,10 @@ function mapShareDoc(id: string, raw: DocumentData): SharePost {
     note: asString(raw.note, '필요한 분이 먼저 메시지 주시면 맞춰드릴게요.'),
     owner: asString(raw.owner, '한동 학생'),
     distance: asString(raw.distance, '도보 3분'),
+    reservedById: asString(raw.reservedById, ''),
+    reservedByName: asString(raw.reservedByName, ''),
+    reservedAtMs: getTimestampMs(raw.reservedAt, 0),
+    reservedAtLabel: formatRelativeTime(raw.reservedAt, ''),
     pickupEndTime,
     createdAtMs,
     expiresAtMs: asNumber(raw.expiresAtMs, buildExpiryMs(pickupEndTime, createdAtMs)),
@@ -451,6 +475,7 @@ export async function createDeliveryParty(user: User, input: CreateDeliveryInput
 
   const point = input.point ?? resolveCampusPoint(input.location)
   const expiresAtMs = buildExpiryMs(input.deadlineTime)
+  const capacity = normalizeDeliveryCapacity(input.capacity)
   const docRef = await addDoc(collection(db, 'deliveryParties'), {
     title: `${input.title} 파티`,
     restaurant: input.title,
@@ -464,7 +489,7 @@ export async function createDeliveryParty(user: User, input: CreateDeliveryInput
     eta: '18분 내 도착',
     feeSavings: '예상 절약 2,500원',
     members: 1,
-    capacity: 4,
+    capacity,
     host: formatDisplayName(user),
     hostTrust: 36.5,
     tags:
@@ -555,6 +580,9 @@ export async function createSharePost(user: User, input: CreateShareInput) {
     note: input.note || '필요한 분이 먼저 메시지 주시면 맞춰드릴게요.',
     owner: formatDisplayName(user),
     distance: '도보 4분',
+    reservedById: '',
+    reservedByName: '',
+    reservedAt: null,
     ownerId: user.uid,
     campusId: 'handong',
     visibility: 'public',
@@ -578,26 +606,51 @@ export async function updateDeliveryParty(
 
   const point = input.point ?? resolveCampusPoint(input.location)
   const expiresAtMs = buildExpiryMs(input.deadlineTime)
-  await updateDoc(doc(db, 'deliveryParties', partyId), {
-    title: `${input.title} 파티`,
-    restaurant: input.title,
-    meetingPoint: input.location,
-    building: point.building,
-    x: point.x,
-    y: point.y,
-    lat: point.lat,
-    lng: point.lng,
-    mood: input.mood,
-    host: formatDisplayName(user),
-    recruitUntilTime: input.deadlineTime,
-    recruitUntil: formatRecruitUntil(input.deadlineTime),
-    tags:
-      input.mood === 'silent'
-        ? ['음식만 같이 주문', '빠른 모집', '수정됨']
-        : ['함께 식사 가능', '빠른 모집', '수정됨'],
-    summary: input.note || '메뉴 조율은 채팅에서 빠르게 정할 수 있어요.',
-    expiresAtMs,
-    updatedAt: serverTimestamp(),
+  const firestore = db
+
+  await runTransaction(firestore, async (transaction) => {
+    const partyRef = doc(firestore, 'deliveryParties', partyId)
+    const partySnapshot = await transaction.get(partyRef)
+
+    if (!partySnapshot.exists()) {
+      throw new Error('배달 파티를 찾을 수 없어요.')
+    }
+
+    const currentMembers = asNumber(partySnapshot.data().members, 1)
+    const nextCapacity = Math.max(
+      currentMembers,
+      normalizeDeliveryCapacity(input.capacity),
+    )
+    const nextStatus =
+      expiresAtMs <= Date.now()
+        ? 'expired'
+        : currentMembers >= nextCapacity
+          ? 'closed'
+          : 'open'
+
+    transaction.update(partyRef, {
+      title: `${input.title} 파티`,
+      restaurant: input.title,
+      meetingPoint: input.location,
+      building: point.building,
+      x: point.x,
+      y: point.y,
+      lat: point.lat,
+      lng: point.lng,
+      mood: input.mood,
+      host: formatDisplayName(user),
+      capacity: nextCapacity,
+      status: nextStatus satisfies PostLifecycleStatus,
+      recruitUntilTime: input.deadlineTime,
+      recruitUntil: formatRecruitUntil(input.deadlineTime),
+      tags:
+        input.mood === 'silent'
+          ? ['음식만 같이 주문', '빠른 모집', '수정됨']
+          : ['함께 식사 가능', '빠른 모집', '수정됨'],
+      summary: input.note || '메뉴 조율은 채팅에서 빠르게 정할 수 있어요.',
+      expiresAtMs,
+      updatedAt: serverTimestamp(),
+    })
   })
 }
 
@@ -630,6 +683,102 @@ export async function updateSharePost(
         : ['생활필수', '생필품', '수정됨'],
     note: input.note || '필요한 분이 먼저 메시지 주시면 맞춰드릴게요.',
     expiresAtMs,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function reserveSharePost(user: User, post: SharePost) {
+  if (!db || !isFirebaseConfigured) {
+    throw new Error('Firebase가 아직 설정되지 않았어요.')
+  }
+
+  const firestore = db
+
+  await runTransaction(firestore, async (transaction) => {
+    const postRef = doc(firestore, 'sharePosts', post.id)
+    const postSnapshot = await transaction.get(postRef)
+
+    if (!postSnapshot.exists()) {
+      throw new Error('나눔 글을 찾을 수 없어요.')
+    }
+
+    const postData = postSnapshot.data()
+    const status = asPostStatus(postData.status, 'open')
+    const ownerId = asString(postData.ownerId, '')
+    const reservedById = asString(postData.reservedById, '')
+    const expiresAtMs = asNumber(postData.expiresAtMs, 0)
+
+    if (ownerId === user.uid) {
+      throw new Error('내가 작성한 글은 예약할 수 없어요.')
+    }
+
+    if (status !== 'open') {
+      throw new Error('이미 예약 중이거나 마감된 글입니다.')
+    }
+
+    if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
+      throw new Error('수령 가능 시간이 지나 더 이상 예약할 수 없습니다.')
+    }
+
+    if (reservedById) {
+      throw new Error('다른 학우가 이미 예약했습니다.')
+    }
+
+    transaction.update(postRef, {
+      status: 'reserved',
+      reservedById: user.uid,
+      reservedByName: formatDisplayName(user),
+      reservedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
+export async function cancelShareReservation(user: User, post: SharePost) {
+  if (!db || !isFirebaseConfigured) {
+    throw new Error('Firebase가 아직 설정되지 않았어요.')
+  }
+
+  const firestore = db
+
+  await runTransaction(firestore, async (transaction) => {
+    const postRef = doc(firestore, 'sharePosts', post.id)
+    const postSnapshot = await transaction.get(postRef)
+
+    if (!postSnapshot.exists()) {
+      throw new Error('나눔 글을 찾을 수 없어요.')
+    }
+
+    const postData = postSnapshot.data()
+    const status = asPostStatus(postData.status, 'open')
+    const ownerId = asString(postData.ownerId, '')
+    const reservedById = asString(postData.reservedById, '')
+
+    if (status !== 'reserved') {
+      throw new Error('현재 예약중인 글이 아닙니다.')
+    }
+
+    if (user.uid !== ownerId && user.uid !== reservedById) {
+      throw new Error('예약 작성자 또는 예약자만 해제할 수 있어요.')
+    }
+
+    transaction.update(postRef, {
+      status: 'open',
+      reservedById: '',
+      reservedByName: '',
+      reservedAt: null,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
+export async function completeSharePost(postId: string) {
+  if (!db || !isFirebaseConfigured) {
+    throw new Error('Firebase가 아직 설정되지 않았어요.')
+  }
+
+  await updateDoc(doc(db, 'sharePosts', postId), {
+    status: 'completed',
     updatedAt: serverTimestamp(),
   })
 }
@@ -683,8 +832,11 @@ export async function approveDeliveryJoinRequest(
       updatedAt: serverTimestamp(),
     })
 
+    const nextMembers = members + 1
+
     transaction.update(partyRef, {
-      members: members + 1,
+      members: nextMembers,
+      status: nextMembers >= capacity ? 'closed' : 'open',
       updatedAt: serverTimestamp(),
     })
   })

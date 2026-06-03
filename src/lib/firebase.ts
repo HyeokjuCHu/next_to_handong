@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
-import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics'
+import type { Analytics } from 'firebase/analytics'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getFunctions } from 'firebase/functions'
@@ -48,11 +48,19 @@ export function isAllowedSchoolEmail(email?: string | null) {
 
 let analyticsPromise: Promise<Analytics | null> | null = null
 
+function isLocalDevelopmentHost() {
+  return (
+    typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+  )
+}
+
 export function initAnalytics() {
   if (
     !firebaseApp ||
     !firebaseConfig.measurementId ||
-    typeof window === 'undefined'
+    typeof window === 'undefined' ||
+    isLocalDevelopmentHost()
   ) {
     return Promise.resolve(null)
   }
@@ -61,8 +69,10 @@ export function initAnalytics() {
     return analyticsPromise
   }
 
-  analyticsPromise = isSupported()
-    .then((supported) => (supported ? getAnalytics(firebaseApp) : null))
+  analyticsPromise = import('firebase/analytics')
+    .then(({ getAnalytics, isSupported }) =>
+      isSupported().then((supported) => (supported ? getAnalytics(firebaseApp) : null)),
+    )
     .catch(() => null)
 
   return analyticsPromise

@@ -5,29 +5,26 @@
   line-height: 1.55;
   font-weight: 400;
   color: var(--ink);
-  background:
-    radial-gradient(circle at top left, rgba(224, 137, 85, 0.18), transparent 28%),
-    radial-gradient(circle at 85% 14%, rgba(36, 140, 112, 0.14), transparent 24%),
-    linear-gradient(180deg, #f7efdf 0%, #f7f1e7 42%, #f6f4ef 100%);
+  background: #f7f3ea;
   color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --bg: #f7f1e7;
-  --panel: rgba(255, 250, 243, 0.84);
-  --ink: #1c2b22;
-  --muted: #6a766d;
-  --muted-strong: #465249;
-  --line: rgba(28, 43, 34, 0.08);
-  --accent: #de7846;
-  --accent-strong: #ab542b;
-  --mint: #248c70;
-  --mint-strong: #186652;
+  --bg: #f7f3ea;
+  --panel: #ffffff;
+  --ink: #17351f;
+  --muted: #73816f;
+  --muted-strong: #4f5f50;
+  --line: rgba(23, 53, 31, 0.1);
+  --accent: #f07a46;
+  --accent-strong: #d85f2f;
+  --mint: #2f7f4a;
+  --mint-strong: #28642d;
   --shadow:
-    0 24px 60px rgba(58, 47, 33, 0.12),
-    0 8px 20px rgba(58, 47, 33, 0.06);
+    0 10px 28px rgba(40, 53, 41, 0.08),
+    0 2px 8px rgba(40, 53, 41, 0.05);
   --sans: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', sans-serif;
   --display: 'Space Grotesk', 'IBM Plex Sans KR', sans-serif;
   --mono: 'SFMono-Regular', 'Consolas', monospace;
