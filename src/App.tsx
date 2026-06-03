@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -135,6 +135,14 @@ function getItemOwnerId(item: FeedItem) {
   return item.kind === 'delivery' ? item.hostId : item.ownerId
 }
 
+function isItemOwnedByUser(item: FeedItem, userId?: string) {
+  return Boolean(userId && getItemOwnerId(item) === userId)
+}
+
+function isItemReservedByUser(item: FeedItem, userId?: string) {
+  return Boolean(userId && item.kind === 'share' && item.reservedById === userId)
+}
+
 function getShareStatusLabel(post: SharePost, nowMs: number) {
   if (post.status === 'reserved') {
     return '예약중'
@@ -182,6 +190,7 @@ function getJoinStatusLabel(status: DeliveryJoinRequest['status']) {
 }
 
 type TimelineView = 'current' | 'past'
+type BoardScope = 'all' | 'mine' | 'reserved'
 
 function createEmptyProfileDraft(): UserProfileSettings {
   return {
@@ -290,8 +299,10 @@ function createGenericSocialBrief(partyId: string): SocialConversationBrief {
 
 function App() {
   const navigate = useNavigate()
+  const detailCardRef = useRef<HTMLElement | null>(null)
   const [activeView, setActiveView] = useState<ViewMode>('delivery')
   const [timelineView, setTimelineView] = useState<TimelineView>('current')
+  const [boardScope, setBoardScope] = useState<BoardScope>('all')
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all')
   const [shareFilter, setShareFilter] = useState<ShareFilter>('all')
   const [selectedId, setSelectedId] = useState('')
@@ -338,6 +349,7 @@ function App() {
   const [socialBriefMessage, setSocialBriefMessage] = useState('')
   const [shareActionMessage, setShareActionMessage] = useState('')
   const [isShareActionSubmitting, setIsShareActionSubmitting] = useState(false)
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
 
   const isSchoolUser = isAllowedSchoolEmail(user?.email)
   const realtimeConnected = deliveryListenerReady && shareListenerReady
@@ -347,12 +359,32 @@ function App() {
   const pastShareFeed = shareFeed.filter((item) => isArchivedItem(item, nowMs))
   const sourceDelivery = timelineView === 'current' ? currentDeliveryFeed : pastDeliveryFeed
   const sourceShare = timelineView === 'current' ? currentShareFeed : pastShareFeed
-  const visibleDelivery = sourceDelivery.filter(
+  const filteredDelivery = sourceDelivery.filter(
     (party) => deliveryFilter === 'all' || party.mood === deliveryFilter,
   )
-  const visibleShare = sourceShare.filter(
+  const filteredShare = sourceShare.filter(
     (post) => shareFilter === 'all' || post.category === shareFilter,
   )
+  const scopedDelivery = filteredDelivery.filter((party) => {
+    if (boardScope === 'mine') {
+      return isItemOwnedByUser(party, user?.uid)
+    }
+
+    return boardScope !== 'reserved'
+  })
+  const scopedShare = filteredShare.filter((post) => {
+    if (boardScope === 'mine') {
+      return isItemOwnedByUser(post, user?.uid)
+    }
+
+    if (boardScope === 'reserved') {
+      return isItemReservedByUser(post, user?.uid)
+    }
+
+    return true
+  })
+  const visibleDelivery = scopedDelivery
+  const visibleShare = scopedShare
   const visibleItems = activeView === 'delivery' ? visibleDelivery : visibleShare
   const effectiveSelectedId = visibleItems.some((item) => item.id === selectedId)
     ? selectedId
@@ -367,7 +399,7 @@ function App() {
   const activeBoardCount = visibleItems.length
   const totalCurrentPosts = currentDeliveryFeed.length + currentShareFeed.length
   const totalPastPosts = pastDeliveryFeed.length + pastShareFeed.length
-  const activeBoardHasPosts = activeView === 'delivery' ? sourceDelivery.length > 0 : sourceShare.length > 0
+  const activeBoardHasPosts = activeView === 'delivery' ? filteredDelivery.length > 0 : filteredShare.length > 0
   const isEditing = editingId !== null
   const editingDeliveryParty =
     activeView === 'delivery' && editingId
@@ -427,6 +459,22 @@ function App() {
     landingMapItems.find((item) => item.id === selectedId) ?? landingMapItems[0] ?? null
   const landingSelectedId = landingSelectedItem?.id ?? ''
   const selectedProfileInterests = parseInterestText(profileInterestsText)
+  const boardScopeEmptyTitle =
+    boardScope === 'mine'
+      ? '내가 만든 글이 없습니다'
+      : boardScope === 'reserved'
+        ? '내 예약 글이 없습니다'
+        : ''
+  const boardScopeEmptyDescription =
+    boardScope === 'mine'
+      ? isSchoolUser
+        ? '직접 만든 글만 모아보는 화면입니다. 새 글을 올리면 여기에 바로 표시됩니다.'
+        : `내 글은 학교 메일(@${schoolEmailDomain}) 로그인 후 확인할 수 있어요.`
+      : boardScope === 'reserved'
+        ? isSchoolUser
+          ? '내가 예약한 리쉐어 글만 모아보는 화면입니다.'
+          : `내 예약은 학교 메일(@${schoolEmailDomain}) 로그인 후 확인할 수 있어요.`
+        : ''
 
   useEffect(() => {
     void initAnalytics()
@@ -466,6 +514,25 @@ function App() {
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (activeView === 'delivery' && boardScope === 'reserved') {
+      setBoardScope('all')
+    }
+  }, [activeView, boardScope])
+
+  useEffect(() => {
+    if (!isJoinModalOpen) {
+      return
+    }
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [isJoinModalOpen])
 
   useEffect(() => {
     const unsubscribeDelivery = listenToDeliveryParties(
@@ -555,6 +622,7 @@ function App() {
     setJoinRequests([])
     setMyJoinRequest(null)
     setSocialBriefMessage('')
+    setIsJoinModalOpen(false)
   }, [effectiveSelectedId, user?.uid])
 
   useEffect(() => {
@@ -668,8 +736,39 @@ function App() {
 
   const handleBoardChange = (view: ViewMode) => {
     setActiveView(view)
+    setBoardScope('all')
     setSubmitMessage('')
     resetComposer(view)
+  }
+
+  const scrollToDetailCard = () => {
+    window.setTimeout(() => {
+      detailCardRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }, 0)
+  }
+
+  const handleSelectBoardItem = (id: string, shouldScroll = true) => {
+    setSelectedId(id)
+
+    if (shouldScroll) {
+      scrollToDetailCard()
+    }
+  }
+
+  const handleOpenJoinModal = () => {
+    if (!selectedDeliveryParty) {
+      return
+    }
+
+    setJoinMessage('')
+    setIsJoinModalOpen(true)
+  }
+
+  const handleCloseJoinModal = () => {
+    setIsJoinModalOpen(false)
   }
 
   const handleSignIn = async () => {
@@ -1212,6 +1311,162 @@ function App() {
     )
   }
 
+  const renderJoinRequestModal = () => {
+    if (!isJoinModalOpen || !selectedDeliveryParty) {
+      return null
+    }
+
+    const isFull = selectedDeliveryParty.members >= selectedDeliveryParty.capacity
+    const canSubmitJoinRequest =
+      isSchoolUser &&
+      !isSelectedArchived &&
+      !isOwnedByCurrentUser &&
+      !isFull &&
+      myJoinRequest?.status !== 'approved' &&
+      myJoinRequest?.status !== 'pending'
+    const modalParticipants = socialBrief?.participants ?? []
+    const hasVisibleParticipants = modalParticipants.length > 0
+
+    return (
+      <div className="modal-backdrop" role="presentation" onClick={handleCloseJoinModal}>
+        <section
+          aria-modal="true"
+          className="join-modal"
+          role="dialog"
+          aria-labelledby="join-modal-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="join-modal__header">
+            <div>
+              <h2 id="join-modal-title">{selectedDeliveryParty.title}</h2>
+              <p>{selectedDeliveryParty.host}님이 모집 중</p>
+            </div>
+            <button
+              className="join-modal__close"
+              type="button"
+              aria-label="참여 요청 창 닫기"
+              onClick={handleCloseJoinModal}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="join-modal__body">
+            <div className="join-modal__summary-grid">
+              <div>
+                <span>수령 위치</span>
+                <strong>{selectedDeliveryParty.meetingPoint}</strong>
+              </div>
+              <div>
+                <span>마감 시간</span>
+                <strong>{selectedDeliveryParty.recruitUntil}</strong>
+              </div>
+              <div>
+                <span>참여 인원</span>
+                <strong>
+                  {selectedDeliveryParty.members} / {selectedDeliveryParty.capacity}명
+                </strong>
+              </div>
+              <div>
+                <span>모집 방식</span>
+                <strong>{getModeLabel(selectedDeliveryParty.mood)}</strong>
+              </div>
+            </div>
+
+            <div className="join-modal__members">
+              <h3>참여 현황</h3>
+              <div className="join-modal__member-list">
+                {hasVisibleParticipants ? (
+                  modalParticipants.map((participant) => (
+                    <article className="join-modal__member-card" key={participant.uid}>
+                      <div className="join-modal__member-topline">
+                        <strong>{participant.displayName}</strong>
+                        <span className="mini-badge">
+                          {participant.role === 'host' ? '모집자' : '참여자'}
+                        </span>
+                      </div>
+                      <p>{getParticipantSummary(participant)}</p>
+                      {participant.interests.length > 0 ? (
+                        <div className="badge-row social-badge-row">
+                          {participant.interests.slice(0, 4).map((interest) => (
+                            <span className="mini-badge" key={`${participant.uid}-${interest}`}>
+                              {interest}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {participant.bio ? <p className="join-modal__member-bio">“{participant.bio}”</p> : null}
+                    </article>
+                  ))
+                ) : (
+                  <article className="join-modal__member-card">
+                    <div className="join-modal__member-topline">
+                      <strong>{selectedDeliveryParty.host}</strong>
+                      <span className="mini-badge">모집자</span>
+                    </div>
+                    <p>현재 {selectedDeliveryParty.members}명이 참여 중입니다.</p>
+                    <p className="join-modal__member-bio">
+                      Social 식사는 승인된 참여자가 생기면 프로필 기반 대화거리가 준비됩니다.
+                    </p>
+                  </article>
+                )}
+              </div>
+            </div>
+
+            {joinMessage ? <p className="join-feedback join-modal__feedback">{joinMessage}</p> : null}
+
+            {!isSchoolUser ? (
+              <p className="join-empty">참여 요청은 학교 메일(@{schoolEmailDomain}) 로그인 후 사용할 수 있어요.</p>
+            ) : isSelectedArchived ? (
+              <p className="join-empty">지난 글은 새 참여 요청을 받을 수 없습니다.</p>
+            ) : isFull ? (
+              <p className="join-empty">현재 모집 인원이 모두 찼습니다.</p>
+            ) : myJoinRequest?.status === 'approved' ? (
+              <p className="join-empty">참여 요청이 승인되었습니다. 약속 시간과 위치를 확인해 주세요.</p>
+            ) : myJoinRequest?.status === 'pending' ? (
+              <p className="join-empty">참여 요청이 전달되었습니다. 호스트가 확인하면 상태가 업데이트됩니다.</p>
+            ) : (
+              <>
+                {myJoinRequest?.status === 'rejected' ? (
+                  <p className="join-empty">이전 요청이 거절되었습니다. 메모를 수정해 다시 요청할 수 있어요.</p>
+                ) : null}
+                <label className="field-label field-label--compact">
+                  전화번호
+                  <input
+                    value={joinPhoneNumber}
+                    onChange={(event) => setJoinPhoneNumber(event.target.value)}
+                    placeholder="예: 010-1234-5678"
+                    inputMode="tel"
+                  />
+                </label>
+                <label className="field-label field-label--compact">
+                  한 줄 메모
+                  <textarea
+                    value={joinRequestNote}
+                    onChange={(event) => setJoinRequestNote(event.target.value)}
+                    placeholder="예: 1인 참여 희망합니다. 늦지 않게 갈게요."
+                    rows={3}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+
+          <div className="join-modal__footer">
+            <button
+              className="submit-button join-modal__submit"
+              type="button"
+              onClick={handleSubmitJoinRequest}
+              disabled={!canSubmitJoinRequest || isJoinSubmitting}
+            >
+              {isJoinSubmitting ? '요청 전송 중...' : '참여 요청 보내기'}
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
   const renderLandingCard = (item: FeedItem) => (
     <Link
       className="landing-post-card"
@@ -1413,6 +1668,32 @@ function App() {
                 </button>
               </div>
 
+              <div className="segmented-control segmented-control--scope" aria-label="내 활동 필터">
+                <button
+                  type="button"
+                  className={boardScope === 'all' ? 'is-active' : ''}
+                  onClick={() => setBoardScope('all')}
+                >
+                  전체
+                </button>
+                <button
+                  type="button"
+                  className={boardScope === 'mine' ? 'is-active' : ''}
+                  onClick={() => setBoardScope('mine')}
+                >
+                  내 글
+                </button>
+                {activeView === 'share' ? (
+                  <button
+                    type="button"
+                    className={boardScope === 'reserved' ? 'is-active' : ''}
+                    onClick={() => setBoardScope('reserved')}
+                  >
+                    내 예약
+                  </button>
+                ) : null}
+              </div>
+
               <div className="filter-row">
                 {(activeView === 'delivery' ? deliveryFilters : shareFilters).map((filter) => {
                   const isActive =
@@ -1460,11 +1741,11 @@ function App() {
                 items={visibleItems}
                 selectedId={effectiveSelectedId}
                 selectedItem={selectedItem ?? undefined}
-                onSelect={setSelectedId}
+                onSelect={handleSelectBoardItem}
               />
             </article>
 
-            <article className="panel detail-card">
+            <article className="panel detail-card" ref={detailCardRef}>
               <div className="panel-header">
                 <div>
                   <p className="panel-kicker">Post Detail</p>
@@ -1505,7 +1786,9 @@ function App() {
                   <p className="empty-state__eyebrow">No Post Yet</p>
                   <strong>
                     {activeBoardHasPosts
-                      ? '지금 필터에 맞는 글이 없습니다'
+                      ? boardScope !== 'all'
+                        ? boardScopeEmptyTitle
+                        : '지금 필터에 맞는 글이 없습니다'
                       : timelineView === 'current'
                         ? activeView === 'delivery'
                           ? '아직 열린 배달 동행이 없습니다'
@@ -1514,7 +1797,9 @@ function App() {
                   </strong>
                   <p>
                     {activeBoardHasPosts
-                      ? '다른 필터를 눌러보거나, 지금 바로 새 글을 올려서 이 보드를 채워보세요.'
+                      ? boardScope !== 'all'
+                        ? boardScopeEmptyDescription
+                        : '다른 필터를 눌러보거나, 지금 바로 새 글을 올려서 이 보드를 채워보세요.'
                       : timelineView === 'current'
                         ? activeView === 'delivery'
                           ? '같이 주문할 사람을 찾고 싶다면 배달 파티를 먼저 열어보세요.'
@@ -1645,7 +1930,7 @@ function App() {
                       <div className="join-panel__header">
                         <div>
                           <strong>파티 참여 요청</strong>
-                          <p>전화번호는 호스트에게만 공개되어 노쇼 방지에 사용됩니다.</p>
+                          <p>상세 정보와 연락처 입력은 참여 요청 창에서 한 번에 확인할 수 있습니다.</p>
                         </div>
                         {myJoinRequest ? (
                           <span className={`join-status-chip join-status-chip--${myJoinRequest.status}`}>
@@ -1671,39 +1956,13 @@ function App() {
                       ) : selectedItem.members >= selectedItem.capacity ? (
                         <p className="join-empty">현재 모집 인원이 모두 찼습니다.</p>
                       ) : (
-                        <>
-                          {myJoinRequest?.status === 'rejected' ? (
-                            <p className="join-empty">
-                              이전 요청이 거절되었습니다. 전화번호나 메모를 수정해 다시 요청할 수 있어요.
-                            </p>
-                          ) : null}
-                          <label className="field-label field-label--compact">
-                            전화번호
-                            <input
-                              value={joinPhoneNumber}
-                              onChange={(event) => setJoinPhoneNumber(event.target.value)}
-                              placeholder="예: 010-1234-5678"
-                              inputMode="tel"
-                            />
-                          </label>
-                          <label className="field-label field-label--compact">
-                            한 줄 메모
-                            <textarea
-                              value={joinRequestNote}
-                              onChange={(event) => setJoinRequestNote(event.target.value)}
-                              placeholder="예: 1인 참여 희망합니다. 늦지 않게 갈게요."
-                              rows={3}
-                            />
-                          </label>
-                          <button
-                            className="submit-button join-submit"
-                            type="button"
-                            onClick={handleSubmitJoinRequest}
-                            disabled={isJoinSubmitting}
-                          >
-                            {isJoinSubmitting ? '요청 전송 중...' : '참여 요청 보내기'}
-                          </button>
-                        </>
+                        <button
+                          className="submit-button join-submit"
+                          type="button"
+                          onClick={handleOpenJoinModal}
+                        >
+                          참여 요청 열기
+                        </button>
                       )}
                     </div>
                   )}
@@ -1881,7 +2140,7 @@ function App() {
                       key={item.id}
                       type="button"
                       className={item.id === effectiveSelectedId ? 'feed-item is-active' : 'feed-item'}
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => handleSelectBoardItem(item.id)}
                     >
                       <div className="feed-main">
                         <div className="feed-title-row">
@@ -1894,12 +2153,15 @@ function App() {
                             : `${item.location} · ${item.quantity} · ${item.pickupEndTime}까지`}
                         </p>
                       </div>
-                      <span className="feed-chip">
-                        {timelineView === 'past'
-                          ? getArchiveLabel(item, nowMs)
-                          : item.kind === 'delivery'
-                            ? getModeLabel(item.mood)
-                            : getShareStatusLabel(item, nowMs)}
+                      <span className="feed-side">
+                        <span className="feed-chip">
+                          {timelineView === 'past'
+                            ? getArchiveLabel(item, nowMs)
+                            : item.kind === 'delivery'
+                              ? getModeLabel(item.mood)
+                              : getShareStatusLabel(item, nowMs)}
+                        </span>
+                        <span className="feed-detail-label">상세보기</span>
                       </span>
                     </button>
                   ))
@@ -1908,7 +2170,9 @@ function App() {
                     <p className="empty-state__eyebrow">Feed Empty</p>
                     <strong>
                       {activeBoardHasPosts
-                        ? '선택한 조건에 맞는 글이 없습니다'
+                        ? boardScope !== 'all'
+                          ? boardScopeEmptyTitle
+                          : '선택한 조건에 맞는 글이 없습니다'
                         : timelineView === 'current'
                           ? activeView === 'delivery'
                             ? '아직 등록된 배달 동행이 없습니다'
@@ -1917,7 +2181,9 @@ function App() {
                     </strong>
                     <p>
                       {activeBoardHasPosts
-                        ? '필터를 바꾸면 다른 글을 볼 수 있습니다.'
+                        ? boardScope !== 'all'
+                          ? boardScopeEmptyDescription
+                          : '필터를 바꾸면 다른 글을 볼 수 있습니다.'
                         : timelineView === 'current'
                           ? activeView === 'delivery'
                             ? '메뉴와 수령 위치를 입력해 첫 배달 파티를 열어보세요.'
@@ -2239,12 +2505,15 @@ function App() {
   )
 
   return (
-    <Routes>
-      <Route path="/" element={homePage} />
-      <Route path="/board" element={boardPage} />
-      <Route path="/profile" element={profilePage} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={homePage} />
+        <Route path="/board" element={boardPage} />
+        <Route path="/profile" element={profilePage} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {renderJoinRequestModal()}
+    </>
   )
 }
 
