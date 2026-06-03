@@ -147,3 +147,67 @@ src/
 2. 파티 참여 / 채팅 / 후기 컬렉션 추가
 3. 학교 이메일 강제를 Cloud Functions 또는 Admin 기반 커스텀 클레임으로 강화
 4. 이후 모바일 앱 전환 시 같은 데이터 모델 재사용
+
+## 협업 방법
+
+처음 프로젝트를 받는 팀원은 아래 순서로 실행하면 됩니다.
+
+```bash
+git clone https://github.com/HyeokjuCHu/next_to_handong.git
+cd next_to_handong
+npm install
+cp .env.example .env
+npm run dev
+```
+
+`.env`에는 Firebase, Kakao Maps, Social AI API 값을 넣어야 합니다. `.env` 파일과 실제 API 키, Firebase 서비스 계정 키는 GitHub에 올리지 않습니다.
+
+이미 프로젝트를 받은 팀원은 작업 전에 최신 `master`를 먼저 가져옵니다.
+
+```bash
+git checkout master
+git pull origin master
+npm install
+```
+
+각자 작업할 때는 `master`에 바로 커밋하지 않고 새 브랜치를 만들어 작업합니다.
+
+```bash
+git checkout -b feature/작업내용
+npm run dev
+```
+
+작업이 끝나면 아래 순서로 확인하고 GitHub에 올립니다.
+
+```bash
+npm run lint
+npm run build
+git add .
+git commit -m "작업 내용 요약"
+git push origin feature/작업내용
+```
+
+브랜치를 올린 뒤에는 GitHub에서 Pull Request를 만들거나, 배포 담당자에게 브랜치 이름을 공유합니다. 배포 담당자는 변경 내용을 확인한 뒤 `master`에 merge합니다.
+
+```bash
+git checkout master
+git pull origin master
+git merge origin/feature/작업내용
+npm run lint
+npm run build
+git push origin master
+```
+
+배포는 한 명이 담당하는 것을 권장합니다. 현재 Firebase Hosting 배포 명령은 아래와 같습니다.
+
+```bash
+npm run deploy:hosting
+```
+
+협업할 때의 기본 규칙:
+
+1. `master`는 실제 배포 가능한 안정 버전으로 유지합니다.
+2. 기능 수정은 `feature/...` 브랜치에서 진행합니다.
+3. `.env`, 서비스 계정 JSON, 개인 키는 절대 커밋하지 않습니다.
+4. 배포 전에는 `npm run lint`와 `npm run build`를 통과시킵니다.
+5. 같은 파일을 동시에 크게 수정하면 충돌이 날 수 있으니, 큰 작업은 미리 팀원끼리 담당 영역을 나눕니다.
