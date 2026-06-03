@@ -350,6 +350,8 @@ function App() {
   const [shareActionMessage, setShareActionMessage] = useState('')
   const [isShareActionSubmitting, setIsShareActionSubmitting] = useState(false)
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isComposerOpen, setIsComposerOpen] = useState(false)
 
   const isSchoolUser = isAllowedSchoolEmail(user?.email)
   const realtimeConnected = deliveryListenerReady && shareListenerReady
@@ -395,10 +397,8 @@ function App() {
     selectedItem && isDeliveryItem(selectedItem) ? selectedItem : null
   const selectedSharePost =
     selectedItem && !isDeliveryItem(selectedItem) ? selectedItem : null
-  const activeBoardLabel = activeView === 'delivery' ? '배달 동행' : '리쉐어 보드'
   const activeBoardCount = visibleItems.length
   const totalCurrentPosts = currentDeliveryFeed.length + currentShareFeed.length
-  const totalPastPosts = pastDeliveryFeed.length + pastShareFeed.length
   const activeBoardHasPosts = activeView === 'delivery' ? filteredDelivery.length > 0 : filteredShare.length > 0
   const isEditing = editingId !== null
   const editingDeliveryParty =
@@ -522,7 +522,7 @@ function App() {
   }, [activeView, boardScope])
 
   useEffect(() => {
-    if (!isJoinModalOpen) {
+    if (!isJoinModalOpen && !isDetailModalOpen && !isComposerOpen) {
       return
     }
 
@@ -532,7 +532,7 @@ function App() {
     return () => {
       document.body.style.overflow = originalOverflow
     }
-  }, [isJoinModalOpen])
+  }, [isJoinModalOpen, isDetailModalOpen, isComposerOpen])
 
   useEffect(() => {
     const unsubscribeDelivery = listenToDeliveryParties(
@@ -734,11 +734,26 @@ function App() {
     setDraftCategory('ingredient')
   }
 
+  const openComposer = (view: ViewMode = activeView) => {
+    resetComposer(view)
+    setActiveView(view)
+    setTimelineView('current')
+    setSubmitMessage('')
+    setIsComposerOpen(true)
+  }
+
+  const closeComposer = () => {
+    setIsComposerOpen(false)
+    setSubmitMessage('')
+    resetComposer()
+  }
+
   const handleBoardChange = (view: ViewMode) => {
     setActiveView(view)
     setBoardScope('all')
     setSubmitMessage('')
     resetComposer(view)
+    setIsDetailModalOpen(false)
   }
 
   const scrollToDetailCard = () => {
@@ -758,17 +773,27 @@ function App() {
     }
   }
 
-  const handleOpenJoinModal = () => {
-    if (!selectedDeliveryParty) {
-      return
-    }
-
+  const handleOpenJoinModalForParty = (party: DeliveryParty) => {
+    setSelectedId(party.id)
+    setActiveView('delivery')
     setJoinMessage('')
     setIsJoinModalOpen(true)
   }
 
   const handleCloseJoinModal = () => {
     setIsJoinModalOpen(false)
+  }
+
+  const handleOpenDetailModal = (item: FeedItem) => {
+    setSelectedId(item.id)
+    setActiveView(item.kind === 'delivery' ? 'delivery' : 'share')
+    setShareActionMessage('')
+    setJoinMessage('')
+    setIsDetailModalOpen(true)
+  }
+
+  const handleCloseDetailModal = () => {
+    setIsDetailModalOpen(false)
   }
 
   const handleSignIn = async () => {
@@ -904,6 +929,7 @@ function App() {
       }
 
       resetComposer()
+      setIsComposerOpen(false)
       setSubmitMessage(
         targetId
           ? activeView === 'delivery'
@@ -955,10 +981,8 @@ function App() {
     }
 
     setSubmitMessage('')
-    document.getElementById('composer-card')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+    setIsDetailModalOpen(false)
+    setIsComposerOpen(true)
   }
 
   const handleDeleteItem = async (item: FeedItem) => {
@@ -997,6 +1021,7 @@ function App() {
         setSelectedId('')
       }
 
+      setIsDetailModalOpen(false)
       setSubmitMessage(
         item.kind === 'delivery'
           ? '배달 파티를 삭제했습니다.'
@@ -1467,6 +1492,534 @@ function App() {
     )
   }
 
+  const renderFeedItemAction = (item: FeedItem) => {
+    const ownedByCurrentUser = isItemOwnedByUser(item, user?.uid)
+    const archived = isArchivedItem(item, nowMs)
+
+    if (ownedByCurrentUser) {
+      return (
+        <button
+          className="board-card-action board-card-action--manage"
+          type="button"
+          onClick={() => handleOpenDetailModal(item)}
+        >
+          관리
+        </button>
+      )
+    }
+
+    if (isDeliveryItem(item)) {
+      const isFull = item.members >= item.capacity
+      const selectedRequestStatus =
+        selectedDeliveryParty?.id === item.id ? myJoinRequest?.status : null
+
+      if (archived || isFull) {
+        return (
+          <button className="board-card-action" type="button" disabled>
+            마감
+          </button>
+        )
+      }
+
+      if (selectedRequestStatus === 'pending') {
+        return (
+          <button className="board-card-action" type="button" disabled>
+            요청 중
+          </button>
+        )
+      }
+
+      if (selectedRequestStatus === 'approved') {
+        return (
+          <button className="board-card-action" type="button" disabled>
+            승인됨
+          </button>
+        )
+      }
+
+      return (
+        <button
+          className="board-card-action board-card-action--primary"
+          type="button"
+          onClick={() => handleOpenJoinModalForParty(item)}
+        >
+          참여하기
+        </button>
+      )
+    }
+
+    if (archived || item.status === 'completed') {
+      return (
+        <button className="board-card-action" type="button" disabled>
+          완료
+        </button>
+      )
+    }
+
+    if (isItemReservedByUser(item, user?.uid)) {
+      return (
+        <button
+          className="board-card-action"
+          type="button"
+          onClick={() => handleOpenDetailModal(item)}
+        >
+          예약 중
+        </button>
+      )
+    }
+
+    if (item.status === 'reserved') {
+      return (
+        <button className="board-card-action" type="button" disabled>
+          예약됨
+        </button>
+      )
+    }
+
+    return (
+      <button
+        className="board-card-action board-card-action--primary"
+        type="button"
+        onClick={() => handleOpenDetailModal(item)}
+      >
+        예약하기
+      </button>
+    )
+  }
+
+  const renderBoardFeedItem = (item: FeedItem) => {
+    const isActive = item.id === effectiveSelectedId
+    const statusLabel =
+      timelineView === 'past'
+        ? getArchiveLabel(item, nowMs)
+        : item.kind === 'delivery'
+          ? getModeLabel(item.mood)
+          : getShareStatusLabel(item, nowMs)
+
+    return (
+      <article className={isActive ? 'board-list-item is-active' : 'board-list-item'} key={item.id}>
+        <button
+          className="board-list-item__main"
+          type="button"
+          onClick={() => handleOpenDetailModal(item)}
+        >
+          <div className="board-list-item__titleline">
+            <strong>{item.title}</strong>
+            <span className="feed-chip">{statusLabel}</span>
+          </div>
+          <p>
+            {item.kind === 'delivery'
+              ? `${item.meetingPoint} · ${item.recruitUntilTime} 마감`
+              : `${item.location} · ${item.quantity}`}
+          </p>
+          <div className="board-list-item__meta">
+            <span>{item.kind === 'delivery' ? `${item.members}/${item.capacity}명 참여 중` : item.owner}</span>
+            <span>상세보기</span>
+          </div>
+        </button>
+        <div className="board-list-item__side">
+          <span>by {item.kind === 'delivery' ? item.host : item.owner}</span>
+          {renderFeedItemAction(item)}
+        </div>
+      </article>
+    )
+  }
+
+  const renderBoardDetailModal = () => {
+    if (!isDetailModalOpen || !selectedItem) {
+      return null
+    }
+
+    return (
+      <div className="modal-backdrop" role="presentation" onClick={handleCloseDetailModal}>
+        <section
+          aria-modal="true"
+          className="board-detail-modal"
+          role="dialog"
+          aria-labelledby="board-detail-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="join-modal__header">
+            <div>
+              <h2 id="board-detail-title">{selectedItem.title}</h2>
+              <p>
+                {isDeliveryItem(selectedItem)
+                  ? `${selectedItem.host}님이 모집 중`
+                  : `${selectedItem.owner}님이 나눔 중`}
+              </p>
+            </div>
+            <button
+              className="join-modal__close"
+              type="button"
+              aria-label="상세 창 닫기"
+              onClick={handleCloseDetailModal}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="join-modal__body">
+            {isDeliveryItem(selectedItem) ? (
+              <>
+                <p className="detail-copy">{selectedItem.summary}</p>
+                <div className="join-modal__summary-grid">
+                  <div>
+                    <span>수령 위치</span>
+                    <strong>{selectedItem.meetingPoint}</strong>
+                  </div>
+                  <div>
+                    <span>마감 시간</span>
+                    <strong>{selectedItem.recruitUntil}</strong>
+                  </div>
+                  <div>
+                    <span>참여 인원</span>
+                    <strong>
+                      {selectedItem.members} / {selectedItem.capacity}명
+                    </strong>
+                  </div>
+                  <div>
+                    <span>모집 방식</span>
+                    <strong>{getModeLabel(selectedItem.mood)}</strong>
+                  </div>
+                </div>
+
+                {renderSocialPanel()}
+
+                {isOwnedByCurrentUser ? (
+                  <div className="join-panel">
+                    <div className="join-panel__header">
+                      <div>
+                        <strong>참여 요청 관리</strong>
+                        <p>요청을 승인하면 모집 인원이 자동으로 채워집니다.</p>
+                      </div>
+                      <span className="join-count">{joinRequests.length}건</span>
+                    </div>
+                    {joinMessage ? <p className="join-feedback">{joinMessage}</p> : null}
+                    {joinRequests.length > 0 ? (
+                      <div className="join-request-list">
+                        {joinRequests.map((request) => (
+                          <div className="join-request-card" key={request.id}>
+                            <div className="join-request-card__topline">
+                              <strong>{request.requesterName}</strong>
+                              <span className={`join-status-chip join-status-chip--${request.status}`}>
+                                {getJoinStatusLabel(request.status)}
+                              </span>
+                            </div>
+                            <p className="join-request-card__meta">
+                              {request.submittedLabel} · {request.phoneNumber || '전화번호 없음'}
+                            </p>
+                            <p className="join-request-card__note">{request.note}</p>
+                            {request.status === 'pending' && !isSelectedArchived ? (
+                              <div className="join-request-actions">
+                                <button
+                                  className="ghost-button detail-action"
+                                  type="button"
+                                  onClick={() => handleApproveJoinRequest(request.id)}
+                                  disabled={processingJoinRequestId === request.id}
+                                >
+                                  승인
+                                </button>
+                                <button
+                                  className="ghost-button detail-action is-danger"
+                                  type="button"
+                                  onClick={() => handleRejectJoinRequest(request.id)}
+                                  disabled={processingJoinRequestId === request.id}
+                                >
+                                  거절
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="join-empty">아직 들어온 참여 요청이 없습니다.</p>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <p className="detail-copy">{selectedItem.note}</p>
+                <div className="join-modal__summary-grid">
+                  <div>
+                    <span>수령 위치</span>
+                    <strong>{selectedItem.location}</strong>
+                  </div>
+                  <div>
+                    <span>등록 시간</span>
+                    <strong>{selectedItem.timeLabel}</strong>
+                  </div>
+                  <div>
+                    <span>물품 구분</span>
+                    <strong>{getShareLabel(selectedItem.category)}</strong>
+                  </div>
+                  <div>
+                    <span>상태</span>
+                    <strong>{getShareStatusLabel(selectedItem, nowMs)}</strong>
+                  </div>
+                </div>
+
+                <div className="join-modal__members">
+                  <h3>나눔 제공자 정보</h3>
+                  <article className="join-modal__member-card">
+                    <div className="join-modal__member-topline">
+                      <strong>{selectedItem.owner}</strong>
+                      <span className="mini-badge">{selectedItem.quantity}</span>
+                    </div>
+                    <p>{selectedItem.pickupWindow}</p>
+                  </article>
+                </div>
+
+                {shareActionMessage ? <p className="join-feedback join-modal__feedback">{shareActionMessage}</p> : null}
+              </>
+            )}
+          </div>
+
+          <div className="join-modal__footer board-detail-modal__footer">
+            {isOwnedByCurrentUser ? (
+              <div className="modal-action-row">
+                <button
+                  className="ghost-button detail-action"
+                  type="button"
+                  onClick={() => handleEditItem(selectedItem)}
+                >
+                  수정
+                </button>
+                <button
+                  className="ghost-button detail-action is-danger"
+                  type="button"
+                  onClick={() => handleDeleteItem(selectedItem)}
+                  disabled={isSubmitting}
+                >
+                  삭제
+                </button>
+                {!isDeliveryItem(selectedItem) && !isSelectedArchived ? (
+                  <button
+                    className="submit-button join-modal__submit"
+                    type="button"
+                    onClick={handleCompleteSharePost}
+                    disabled={isShareActionSubmitting}
+                  >
+                    {isShareActionSubmitting ? '처리 중...' : '나눔 완료'}
+                  </button>
+                ) : null}
+              </div>
+            ) : isDeliveryItem(selectedItem) ? (
+              <button
+                className="submit-button join-modal__submit"
+                type="button"
+                onClick={() => handleOpenJoinModalForParty(selectedItem)}
+                disabled={isSelectedArchived || selectedItem.members >= selectedItem.capacity}
+              >
+                {myJoinRequest?.status === 'pending'
+                  ? '참여 요청 중'
+                  : myJoinRequest?.status === 'approved'
+                    ? '승인됨'
+                    : '참여 요청 보내기'}
+              </button>
+            ) : selectedItem.status === 'open' && !isSelectedArchived ? (
+              <button
+                className="submit-button join-modal__submit"
+                type="button"
+                onClick={handleReserveSharePost}
+                disabled={isShareActionSubmitting}
+              >
+                {isShareActionSubmitting ? '예약 중...' : '예약하기'}
+              </button>
+            ) : isShareReservedByCurrentUser ? (
+              <button
+                className="ghost-button detail-action"
+                type="button"
+                onClick={handleCancelShareReservation}
+                disabled={isShareActionSubmitting}
+              >
+                {isShareActionSubmitting ? '처리 중...' : '예약 취소'}
+              </button>
+            ) : (
+              <button className="board-card-action" type="button" disabled>
+                {isSelectedArchived ? '지난 글' : '예약됨'}
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
+    )
+  }
+
+  const renderComposerModal = () => {
+    if (!isComposerOpen) {
+      return null
+    }
+
+    return (
+      <div className="modal-backdrop" role="presentation" onClick={closeComposer}>
+        <form
+          className="composer-modal"
+          id="composer-card"
+          onSubmit={handleCreate}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="join-modal__header">
+            <div>
+              <h2>
+                {isEditing
+                  ? activeView === 'delivery'
+                    ? '배달 동행 수정'
+                    : '리쉐어 수정'
+                  : activeView === 'delivery'
+                    ? '배달 동행 모집'
+                    : '리쉐어 글쓰기'}
+              </h2>
+              <p>{isSchoolUser ? '학교 인증 계정으로 작성 중' : '학교 로그인 후 작성 가능'}</p>
+            </div>
+            <button
+              className="join-modal__close"
+              type="button"
+              aria-label="글쓰기 창 닫기"
+              onClick={closeComposer}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="join-modal__body">
+            <label className="field-label">
+              {activeView === 'delivery' ? '음식점' : '나눌 품목'}
+              <input
+                value={draftTitle}
+                onChange={(event) => setDraftTitle(event.target.value)}
+                placeholder={activeView === 'delivery' ? '예: 본죽&비빔밥' : '예: 노트북 거치대'}
+              />
+            </label>
+
+            <label className="field-label">
+              수령 위치
+              <input
+                value={draftLocation}
+                onChange={(event) => setDraftLocation(event.target.value)}
+                placeholder="예: 캠퍼스타운, 학생회관"
+              />
+            </label>
+
+            <label className="field-label">
+              {activeView === 'delivery' ? '마감 시간' : '수령 가능 마감 시간'}
+              <input
+                type="time"
+                value={draftScheduleTime}
+                onChange={(event) => setDraftScheduleTime(event.target.value)}
+              />
+            </label>
+
+            {activeView === 'delivery' ? (
+              <label className="field-label">
+                모집 인원
+                <select
+                  value={draftCapacity}
+                  onChange={(event) => setDraftCapacity(Number(event.target.value))}
+                >
+                  {deliveryCapacityOptions.map((capacity) => (
+                    <option key={capacity} value={capacity} disabled={capacity < draftCapacityMinimum}>
+                      총 {capacity}명
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <div className="field-meta">
+              <span>
+                {draftPoint
+                  ? `${draftPoint.building} 기준 좌표 선택 완료`
+                  : '지도에서 수령 위치를 선택할 수 있습니다'}
+              </span>
+              {draftPoint ? (
+                <button className="inline-action" type="button" onClick={() => setDraftPoint(null)}>
+                  초기화
+                </button>
+              ) : null}
+            </div>
+
+            <div className="location-picker-card">
+              <LocationPickerMap
+                selectedPoint={draftPoint}
+                selectedLabel={draftLocation.trim()}
+                onSelect={handleDraftPointSelect}
+              />
+            </div>
+
+            <label className="field-label">
+              설명
+              <textarea
+                value={draftNote}
+                onChange={(event) => setDraftNote(event.target.value)}
+                placeholder={
+                  activeView === 'delivery'
+                    ? '예: 같이 주문할 사람 찾습니다.'
+                    : '예: 새로 사서 필요 없어졌어요.'
+                }
+                rows={4}
+              />
+            </label>
+
+            {activeView === 'delivery' ? (
+              <div className="segmented-control">
+                <button
+                  type="button"
+                  className={draftMood === 'silent' ? 'is-active' : ''}
+                  onClick={() => setDraftMood('silent')}
+                >
+                  Silent
+                </button>
+                <button
+                  type="button"
+                  className={draftMood === 'social' ? 'is-active' : ''}
+                  onClick={() => setDraftMood('social')}
+                >
+                  Social
+                </button>
+              </div>
+            ) : (
+              <div className="segmented-control">
+                <button
+                  type="button"
+                  className={draftCategory === 'ingredient' ? 'is-active' : ''}
+                  onClick={() => setDraftCategory('ingredient')}
+                >
+                  식재료
+                </button>
+                <button
+                  type="button"
+                  className={draftCategory === 'supply' ? 'is-active' : ''}
+                  onClick={() => setDraftCategory('supply')}
+                >
+                  생필품
+                </button>
+              </div>
+            )}
+
+            {!isSchoolUser ? (
+              <p className="helper-text">{`글 등록은 @${schoolEmailDomain} 로그인 후 사용할 수 있습니다.`}</p>
+            ) : null}
+            {submitMessage ? <p className="helper-text helper-text--strong">{submitMessage}</p> : null}
+          </div>
+
+          <div className="join-modal__footer">
+            <button className="submit-button join-modal__submit" type="submit" disabled={!isSchoolUser || isSubmitting}>
+              {isSubmitting
+                ? '저장 중...'
+                : isEditing
+                  ? '변경사항 저장'
+                  : activeView === 'delivery'
+                    ? '모집 시작'
+                    : '글 등록'}
+            </button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
   const renderLandingCard = (item: FeedItem) => (
     <Link
       className="landing-post-card"
@@ -1608,50 +2161,42 @@ function App() {
 
   const boardPage = (
     <div className="app-shell">
-      {renderHeader()}
       {renderStatusAlert()}
 
       <main id="top" className="page-container board-main">
-        <section className="panel board-page-intro">
-          <div>
-            <p className="eyebrow">Campus Board</p>
-            <h1>캠퍼스 보드</h1>
-          </div>
-          <div className="board-page-intro__meta">
-            <span className="status-pill status-pill--live">현재 {totalCurrentPosts}건</span>
-            <span className="status-pill">지난 {totalPastPosts}건</span>
-            <span className="status-pill">{isSchoolUser ? '학교 인증' : '둘러보기'}</span>
-          </div>
+        <section className="board-titlebar">
+          <Link className="board-back-link" to="/">
+            <span aria-hidden="true">←</span>
+            <span>한띵동 보드</span>
+          </Link>
+          <Link className="site-nav__button" to="/profile">
+            프로필
+          </Link>
         </section>
 
-        <section className="dashboard-section" id="dashboard">
-          <div className="section-heading section-heading--compact">
-            <div>
-              <p className="eyebrow">Campus Board</p>
-              <h2>{activeBoardLabel}</h2>
-            </div>
-          </div>
+        <section className="board-tabs" aria-label="보드 종류">
+          <button
+            type="button"
+            className={activeView === 'delivery' ? 'is-active' : ''}
+            onClick={() => handleBoardChange('delivery')}
+          >
+            <span aria-hidden="true">♧</span>
+            배달 동행
+          </button>
+          <button
+            type="button"
+            className={activeView === 'share' ? 'is-active' : ''}
+            onClick={() => handleBoardChange('share')}
+          >
+            <span aria-hidden="true">□</span>
+            리쉐어
+          </button>
+        </section>
 
-          <div className="board-controls">
-            <div className="board-switch">
-              <button
-                type="button"
-                className={activeView === 'delivery' ? 'is-active' : ''}
-                onClick={() => handleBoardChange('delivery')}
-              >
-                배달 동행
-              </button>
-              <button
-                type="button"
-                className={activeView === 'share' ? 'is-active' : ''}
-                onClick={() => handleBoardChange('share')}
-              >
-                리쉐어 보드
-              </button>
-            </div>
-
-            <div className="board-control-stack">
-              <div className="segmented-control">
+        <section className="board-layout" id="dashboard">
+          <div className="board-list-column">
+            <div className="board-toolbar">
+              <div className="filter-row filter-row--primary">
                 <button
                   type="button"
                   className={timelineView === 'current' ? 'is-active' : ''}
@@ -1666,22 +2211,19 @@ function App() {
                 >
                   지난 글
                 </button>
-              </div>
-
-              <div className="segmented-control segmented-control--scope" aria-label="내 활동 필터">
+                <button
+                  type="button"
+                  className={boardScope === 'mine' ? 'is-active' : ''}
+                  onClick={() => setBoardScope('mine')}
+                >
+                  내가 쓴 글
+                </button>
                 <button
                   type="button"
                   className={boardScope === 'all' ? 'is-active' : ''}
                   onClick={() => setBoardScope('all')}
                 >
                   전체
-                </button>
-                <button
-                  type="button"
-                  className={boardScope === 'mine' ? 'is-active' : ''}
-                  onClick={() => setBoardScope('mine')}
-                >
-                  내 글
                 </button>
                 {activeView === 'share' ? (
                   <button
@@ -1694,693 +2236,94 @@ function App() {
                 ) : null}
               </div>
 
-              <div className="filter-row">
-                {(activeView === 'delivery' ? deliveryFilters : shareFilters).map((filter) => {
-                  const isActive =
-                    activeView === 'delivery'
-                      ? deliveryFilter === filter.value
-                      : shareFilter === filter.value
-
-                  return (
-                    <button
-                      key={filter.value}
-                      type="button"
-                      className={isActive ? 'filter-pill is-active' : 'filter-pill'}
-                      onClick={() => {
-                        if (activeView === 'delivery') {
-                          setDeliveryFilter(filter.value as DeliveryFilter)
-                        } else {
-                          setShareFilter(filter.value as ShareFilter)
-                        }
-                      }}
-                    >
-                      {filter.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <button
+                className="board-write-button"
+                type="button"
+                onClick={() => openComposer(activeView)}
+              >
+                <span aria-hidden="true">＋</span>
+                글쓰기
+              </button>
             </div>
-          </div>
+            <div className="board-type-filters">
+              {(activeView === 'delivery' ? deliveryFilters : shareFilters).map((filter) => {
+                const isActive =
+                  activeView === 'delivery'
+                    ? deliveryFilter === filter.value
+                    : shareFilter === filter.value
 
-          <div className="top-grid">
-            <article className="panel map-card">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Campus Pick-up Map</p>
-                  <h3>{`${activeBoardLabel} 지도`}</h3>
-                </div>
-                <div className="detail-chip-group">
-                  <span className="panel-chip">{timelineView === 'current' ? '현재 글' : '지난 글'}</span>
-                  <span className="panel-chip">
-                    {mapStatus?.ready ? '지도 사용 가능' : '지도 준비 중'}
-                  </span>
-                </div>
-              </div>
-
-              <CampusMap
-                items={visibleItems}
-                selectedId={effectiveSelectedId}
-                selectedItem={selectedItem ?? undefined}
-                onSelect={handleSelectBoardItem}
-              />
-            </article>
-
-            <article className="panel detail-card" ref={detailCardRef}>
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Post Detail</p>
-                  <h3>
-                    {selectedItem
-                      ? selectedItem.title
-                      : timelineView === 'current'
-                        ? activeView === 'delivery'
-                          ? '첫 배달 동행을 기다리는 중'
-                          : '첫 나눔 글을 기다리는 중'
-                        : '지난 글을 기다리는 중'}
-                  </h3>
-                </div>
-                {selectedItem ? (
-                  <div className="detail-chip-group">
-                    {isSelectedArchived ? (
-                      <span className="status-pill">{getArchiveLabel(selectedItem, nowMs)}</span>
-                    ) : null}
-                    <span
-                      className={
-                        isDeliveryItem(selectedItem)
-                          ? `status-pill status-pill--${selectedItem.mood}`
-                          : selectedItem.status === 'reserved'
-                            ? 'status-pill status-pill--reserved'
-                            : `status-pill status-pill--${selectedItem.category}`
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={isActive ? 'filter-pill is-active' : 'filter-pill'}
+                    onClick={() => {
+                      if (activeView === 'delivery') {
+                        setDeliveryFilter(filter.value as DeliveryFilter)
+                      } else {
+                        setShareFilter(filter.value as ShareFilter)
                       }
-                    >
-                      {isDeliveryItem(selectedItem)
-                        ? getModeLabel(selectedItem.mood)
-                        : getShareStatusLabel(selectedItem, nowMs)}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
+                    }}
+                  >
+                    {filter.label}
+                  </button>
+                )
+              })}
+            </div>
 
-              {!selectedItem ? (
-                <div className="empty-state">
-                  <p className="empty-state__eyebrow">No Post Yet</p>
+            <div className="board-list">
+              {visibleItems.length > 0 ? (
+                visibleItems.map(renderBoardFeedItem)
+              ) : (
+                <div className="empty-state empty-state--list">
                   <strong>
                     {activeBoardHasPosts
                       ? boardScope !== 'all'
                         ? boardScopeEmptyTitle
-                        : '지금 필터에 맞는 글이 없습니다'
+                        : '선택한 조건에 맞는 글이 없습니다'
                       : timelineView === 'current'
                         ? activeView === 'delivery'
-                          ? '아직 열린 배달 동행이 없습니다'
+                          ? '아직 등록된 배달 동행이 없습니다'
                           : '아직 등록된 나눔 글이 없습니다'
-                        : '아직 지난 글 기록이 없습니다'}
+                        : '아직 지난 글이 없습니다'}
                   </strong>
                   <p>
                     {activeBoardHasPosts
                       ? boardScope !== 'all'
                         ? boardScopeEmptyDescription
-                        : '다른 필터를 눌러보거나, 지금 바로 새 글을 올려서 이 보드를 채워보세요.'
+                        : '필터를 바꾸면 다른 글을 볼 수 있습니다.'
                       : timelineView === 'current'
-                        ? activeView === 'delivery'
-                          ? '같이 주문할 사람을 찾고 싶다면 배달 파티를 먼저 열어보세요.'
-                          : '남는 식재료나 생필품이 있다면 첫 리쉐어 글을 올려보세요.'
-                        : '시간이 지난 글은 여기로 자동으로 모입니다.'}
+                        ? '오른쪽 위 글쓰기 버튼으로 첫 글을 올려보세요.'
+                        : '모집 시간이 지난 글은 여기에 자동으로 쌓입니다.'}
                   </p>
                 </div>
-              ) : isDeliveryItem(selectedItem) ? (
-                <>
-                  {isSelectedArchived ? (
-                    <div className="archive-banner">
-                      <strong>{getArchiveLabel(selectedItem, nowMs)}</strong>
-                      <p>이 글은 현재 모집 목록에서는 빠졌고, 기록 확인용으로만 보입니다.</p>
-                    </div>
-                  ) : null}
-                  <p className="detail-copy">{selectedItem.summary}</p>
-                  <div className="detail-grid">
-                    <div>
-                      <span>식당</span>
-                      <strong>{selectedItem.restaurant}</strong>
-                    </div>
-                    <div>
-                      <span>수령 위치</span>
-                      <strong>{selectedItem.meetingPoint}</strong>
-                    </div>
-                    <div>
-                      <span>모집 인원</span>
-                      <strong>
-                        {selectedItem.members} / {selectedItem.capacity}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>모집자</span>
-                      <strong>{selectedItem.host}</strong>
-                    </div>
-                    <div>
-                      <span>모집 마감</span>
-                      <strong>{selectedItem.recruitUntil}</strong>
-                    </div>
-                    <div>
-                      <span>등록 시각</span>
-                      <strong>{selectedItem.timeLabel}</strong>
-                    </div>
-                  </div>
-                  <div className="badge-row">
-                    {selectedItem.tags.map((tag) => (
-                      <span className="mini-badge" key={tag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-
-                  {renderSocialPanel()}
-
-                  {isOwnedByCurrentUser ? (
-                    <div className="detail-actions">
-                      <button
-                        className="ghost-button detail-action"
-                        type="button"
-                        onClick={() => handleEditItem(selectedItem)}
-                      >
-                        수정
-                      </button>
-                      <button
-                        className="ghost-button detail-action is-danger"
-                        type="button"
-                        onClick={() => handleDeleteItem(selectedItem)}
-                        disabled={isSubmitting}
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {isOwnedByCurrentUser ? (
-                    <div className="join-panel">
-                      <div className="join-panel__header">
-                        <div>
-                          <strong>참여 요청 관리</strong>
-                          <p>전화번호는 호스트 화면에서만 보여 노쇼 방지에 사용됩니다.</p>
-                        </div>
-                        <span className="join-count">{joinRequests.length}건</span>
-                      </div>
-                      {joinMessage ? <p className="join-feedback">{joinMessage}</p> : null}
-                      {joinRequests.length > 0 ? (
-                        <div className="join-request-list">
-                          {joinRequests.map((request) => (
-                            <div className="join-request-card" key={request.id}>
-                              <div className="join-request-card__topline">
-                                <strong>{request.requesterName}</strong>
-                                <span className={`join-status-chip join-status-chip--${request.status}`}>
-                                  {getJoinStatusLabel(request.status)}
-                                </span>
-                              </div>
-                              <p className="join-request-card__meta">
-                                {request.submittedLabel} · {request.phoneNumber || '전화번호 없음'}
-                              </p>
-                              <p className="join-request-card__note">{request.note}</p>
-                              {request.status === 'pending' && !isSelectedArchived ? (
-                                <div className="join-request-actions">
-                                  <button
-                                    className="ghost-button detail-action"
-                                    type="button"
-                                    onClick={() => handleApproveJoinRequest(request.id)}
-                                    disabled={processingJoinRequestId === request.id}
-                                  >
-                                    승인
-                                  </button>
-                                  <button
-                                    className="ghost-button detail-action is-danger"
-                                    type="button"
-                                    onClick={() => handleRejectJoinRequest(request.id)}
-                                    disabled={processingJoinRequestId === request.id}
-                                  >
-                                    거절
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="join-empty">아직 들어온 참여 요청이 없습니다.</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="join-panel">
-                      <div className="join-panel__header">
-                        <div>
-                          <strong>파티 참여 요청</strong>
-                          <p>상세 정보와 연락처 입력은 참여 요청 창에서 한 번에 확인할 수 있습니다.</p>
-                        </div>
-                        {myJoinRequest ? (
-                          <span className={`join-status-chip join-status-chip--${myJoinRequest.status}`}>
-                            {getJoinStatusLabel(myJoinRequest.status)}
-                          </span>
-                        ) : null}
-                      </div>
-                      {joinMessage ? <p className="join-feedback">{joinMessage}</p> : null}
-                      {!isSchoolUser ? (
-                        <p className="join-empty">
-                          참여 요청은 학교 메일(@{schoolEmailDomain}) 로그인 후 사용할 수 있어요.
-                        </p>
-                      ) : isSelectedArchived ? (
-                        <p className="join-empty">지난 글은 새 참여 요청을 받을 수 없습니다.</p>
-                      ) : myJoinRequest?.status === 'approved' ? (
-                        <p className="join-empty">
-                          참여 요청이 승인되었습니다. Social 식사라면 위 대화 추천도 함께 활용해 보세요.
-                        </p>
-                      ) : myJoinRequest?.status === 'pending' ? (
-                        <p className="join-empty">
-                          참여 요청이 전달되었습니다. 호스트가 확인하면 상태가 업데이트됩니다.
-                        </p>
-                      ) : selectedItem.members >= selectedItem.capacity ? (
-                        <p className="join-empty">현재 모집 인원이 모두 찼습니다.</p>
-                      ) : (
-                        <button
-                          className="submit-button join-submit"
-                          type="button"
-                          onClick={handleOpenJoinModal}
-                        >
-                          참여 요청 열기
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {isSelectedArchived ? (
-                    <div className="archive-banner">
-                      <strong>{getArchiveLabel(selectedItem, nowMs)}</strong>
-                      <p>이 글은 현재 나눔 목록에서는 빠졌고, 지난 기록으로만 확인할 수 있습니다.</p>
-                    </div>
-                  ) : null}
-                  <p className="detail-copy">{selectedItem.note}</p>
-                  <div className="detail-grid">
-                    <div>
-                      <span>품목 구분</span>
-                      <strong>{getShareLabel(selectedItem.category)}</strong>
-                    </div>
-                    <div>
-                      <span>진행 상태</span>
-                      <strong>{getShareStatusLabel(selectedItem, nowMs)}</strong>
-                    </div>
-                    <div>
-                      <span>수령 위치</span>
-                      <strong>{selectedItem.location}</strong>
-                    </div>
-                    <div>
-                      <span>양 / 상태</span>
-                      <strong>{selectedItem.quantity}</strong>
-                    </div>
-                    <div>
-                      <span>작성자</span>
-                      <strong>{selectedItem.owner}</strong>
-                    </div>
-                    <div>
-                      <span>예약자</span>
-                      <strong>{selectedItem.reservedByName || '아직 없음'}</strong>
-                    </div>
-                    <div>
-                      <span>수령 가능 시간</span>
-                      <strong>{selectedItem.pickupWindow}</strong>
-                    </div>
-                    <div>
-                      <span>등록 시각</span>
-                      <strong>{selectedItem.timeLabel}</strong>
-                    </div>
-                  </div>
-                  <div className="badge-row">
-                    {selectedItem.badges.map((badge) => (
-                      <span className="mini-badge" key={badge}>
-                        {badge}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="join-panel">
-                    <div className="join-panel__header">
-                      <div>
-                        <strong>리쉐어 상태</strong>
-                        <p>
-                          {selectedItem.status === 'reserved'
-                            ? selectedItem.reservedByName
-                              ? `${selectedItem.reservedByName}님이 예약 중입니다.`
-                              : '현재 예약이 진행 중입니다.'
-                            : '필요한 학생이 바로 예약할 수 있습니다.'}
-                        </p>
-                      </div>
-                      <span
-                        className={
-                          selectedItem.status === 'reserved'
-                            ? 'join-status-chip join-status-chip--approved'
-                            : 'join-status-chip join-status-chip--pending'
-                        }
-                      >
-                        {selectedItem.status === 'reserved' ? '예약중' : '예약 가능'}
-                      </span>
-                    </div>
-                    {shareActionMessage ? <p className="join-feedback">{shareActionMessage}</p> : null}
-                    {isOwnedByCurrentUser ? (
-                      <div className="share-action-group">
-                        {!isSelectedArchived ? (
-                          <button
-                            className="ghost-button detail-action"
-                            type="button"
-                            onClick={handleCompleteSharePost}
-                            disabled={isSubmitting || isShareActionSubmitting}
-                          >
-                            {isShareActionSubmitting ? '처리 중...' : '나눔 완료'}
-                          </button>
-                        ) : null}
-                        {!isSelectedArchived && selectedItem.status === 'reserved' ? (
-                          <button
-                            className="ghost-button detail-action"
-                            type="button"
-                            onClick={handleCancelShareReservation}
-                            disabled={isSubmitting || isShareActionSubmitting}
-                          >
-                            {isShareActionSubmitting ? '처리 중...' : '예약 해제'}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : !isSchoolUser ? (
-                      <p className="join-empty">
-                        예약은 학교 메일(@{schoolEmailDomain}) 로그인 후 사용할 수 있어요.
-                      </p>
-                    ) : isSelectedArchived ? (
-                      <p className="join-empty">지난 글은 새 예약을 받을 수 없습니다.</p>
-                    ) : selectedItem.status === 'open' ? (
-                      <button
-                        className="submit-button join-submit"
-                        type="button"
-                        onClick={handleReserveSharePost}
-                        disabled={isShareActionSubmitting}
-                      >
-                        {isShareActionSubmitting ? '예약 중...' : '예약하기'}
-                      </button>
-                    ) : isShareReservedByCurrentUser ? (
-                      <div className="share-action-group">
-                        <p className="join-empty">내가 예약한 글입니다. 필요하면 예약을 취소할 수 있어요.</p>
-                        <button
-                          className="ghost-button detail-action"
-                          type="button"
-                          onClick={handleCancelShareReservation}
-                          disabled={isShareActionSubmitting}
-                        >
-                          {isShareActionSubmitting ? '처리 중...' : '예약 취소'}
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="join-empty">
-                        다른 학우가 예약 중입니다
-                        {selectedItem.reservedAtLabel ? ` · ${selectedItem.reservedAtLabel}` : ''}.
-                      </p>
-                    )}
-                  </div>
-                  {isOwnedByCurrentUser ? (
-                    <div className="detail-actions">
-                      <button
-                        className="ghost-button detail-action"
-                        type="button"
-                        onClick={() => handleEditItem(selectedItem)}
-                      >
-                        수정
-                      </button>
-                      <button
-                        className="ghost-button detail-action is-danger"
-                        type="button"
-                        onClick={() => handleDeleteItem(selectedItem)}
-                        disabled={isSubmitting}
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  ) : null}
-                </>
               )}
-            </article>
+            </div>
           </div>
 
-          <div className="bottom-grid">
-            <article className="panel feed-card">
-              <div className="panel-header">
+          <aside className="board-map-column">
+            <div className="board-map-card">
+              <div className="board-map-card__header">
                 <div>
-                  <p className="panel-kicker">Post List</p>
-                  <h3>{`${activeBoardLabel} 목록`}</h3>
+                  <h2>위치 지도</h2>
+                  <p>{activeBoardCount}개 위치</p>
                 </div>
-                <div className="detail-chip-group">
-                  <span className="panel-chip">{timelineView === 'current' ? '현재 글' : '지난 글'}</span>
-                  <span className="panel-chip">{activeBoardCount}건</span>
-                </div>
+                <span>{mapStatus?.ready ? '연동됨' : '준비 중'}</span>
               </div>
-              <div className="feed-list">
-                {visibleItems.length > 0 ? (
-                  visibleItems.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={item.id === effectiveSelectedId ? 'feed-item is-active' : 'feed-item'}
-                      onClick={() => handleSelectBoardItem(item.id)}
-                    >
-                      <div className="feed-main">
-                        <div className="feed-title-row">
-                          <strong>{item.title}</strong>
-                          <span>{item.timeLabel}</span>
-                        </div>
-                        <p>
-                          {item.kind === 'delivery'
-                            ? `${item.restaurant} · ${item.meetingPoint} · ${item.recruitUntilTime} 마감`
-                            : `${item.location} · ${item.quantity} · ${item.pickupEndTime}까지`}
-                        </p>
-                      </div>
-                      <span className="feed-side">
-                        <span className="feed-chip">
-                          {timelineView === 'past'
-                            ? getArchiveLabel(item, nowMs)
-                            : item.kind === 'delivery'
-                              ? getModeLabel(item.mood)
-                              : getShareStatusLabel(item, nowMs)}
-                        </span>
-                        <span className="feed-detail-label">상세보기</span>
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="empty-state empty-state--list">
-                    <p className="empty-state__eyebrow">Feed Empty</p>
-                    <strong>
-                      {activeBoardHasPosts
-                        ? boardScope !== 'all'
-                          ? boardScopeEmptyTitle
-                          : '선택한 조건에 맞는 글이 없습니다'
-                        : timelineView === 'current'
-                          ? activeView === 'delivery'
-                            ? '아직 등록된 배달 동행이 없습니다'
-                            : '아직 등록된 나눔 글이 없습니다'
-                          : '아직 지난 글이 없습니다'}
-                    </strong>
-                    <p>
-                      {activeBoardHasPosts
-                        ? boardScope !== 'all'
-                          ? boardScopeEmptyDescription
-                          : '필터를 바꾸면 다른 글을 볼 수 있습니다.'
-                        : timelineView === 'current'
-                          ? activeView === 'delivery'
-                            ? '메뉴와 수령 위치를 입력해 첫 배달 파티를 열어보세요.'
-                            : '남는 물품이 있다면 첫 리쉐어 글을 등록해보세요.'
-                          : '모집 시간이 지난 글은 여기에 자동으로 쌓입니다.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </article>
-
-            <form className="panel composer-card" id="composer-card" onSubmit={handleCreate}>
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">New Post</p>
-                  <h3>
-                    {isEditing
-                      ? activeView === 'delivery'
-                        ? '내 배달 파티 수정'
-                        : '내 나눔 글 수정'
-                      : activeView === 'delivery'
-                        ? '지금 배달 파티 열기'
-                        : '지금 나눔 글 올리기'}
-                  </h3>
-                </div>
-                <span className="panel-chip">
-                  {isEditing ? '수정 중' : isSchoolUser ? '지금 글쓰기 가능' : '학교 로그인 필요'}
-                </span>
-              </div>
-
-              <label className="field-label">
-                {activeView === 'delivery' ? '가게 또는 메뉴' : '나눌 품목'}
-                <input
-                  value={draftTitle}
-                  onChange={(event) => setDraftTitle(event.target.value)}
-                  placeholder={
-                    activeView === 'delivery'
-                      ? '예: BHC 치킨, 마라탕'
-                      : '예: 계란 8개, 세제 조금'
+              <CampusMap
+                items={visibleItems}
+                selectedId={effectiveSelectedId}
+                selectedItem={selectedItem ?? undefined}
+                onSelect={(id) => {
+                  handleSelectBoardItem(id, false)
+                  const nextItem = visibleItems.find((item) => item.id === id)
+                  if (nextItem) {
+                    handleOpenDetailModal(nextItem)
                   }
-                />
-              </label>
-
-              <label className="field-label">
-                수령 위치
-                <input
-                  value={draftLocation}
-                  onChange={(event) => setDraftLocation(event.target.value)}
-                  placeholder="예: 학생회관 앞 벤치, 도서관 정문 오른쪽"
-                />
-              </label>
-
-              <label className="field-label">
-                {activeView === 'delivery' ? '모집 마감 시간' : '수령 가능 마감 시간'}
-                <input
-                  type="time"
-                  value={draftScheduleTime}
-                  onChange={(event) => setDraftScheduleTime(event.target.value)}
-                />
-              </label>
-
-              {activeView === 'delivery' ? (
-                <label className="field-label">
-                  모집 인원
-                  <select
-                    value={draftCapacity}
-                    onChange={(event) => setDraftCapacity(Number(event.target.value))}
-                  >
-                    {deliveryCapacityOptions.map((capacity) => (
-                      <option
-                        key={capacity}
-                        value={capacity}
-                        disabled={capacity < draftCapacityMinimum}
-                      >
-                        총 {capacity}명
-                      </option>
-                    ))}
-                  </select>
-                  <span className="field-help">
-                    모집자를 포함한 총 인원입니다.
-                    {editingDeliveryParty && editingDeliveryParty.members > 1
-                      ? ` 현재 ${editingDeliveryParty.members}명이 승인되어 그보다 작게 줄일 수 없습니다.`
-                      : ''}
-                  </span>
-                </label>
-              ) : null}
-
-              <div className="field-meta">
-                <span>
-                  {draftPoint
-                    ? `${draftPoint.building} 기준 좌표 선택 완료`
-                    : '아직 지도에서 선택한 위치가 없습니다'}
-                </span>
-                {draftPoint ? (
-                  <button className="inline-action" type="button" onClick={() => setDraftPoint(null)}>
-                    지도 선택 초기화
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="location-picker-card">
-                <p className="picker-caption">
-                  학교 배치도에서 건물을 눌러 수령 위치를 정확하게 고를 수 있습니다.
-                </p>
-                <LocationPickerMap
-                  selectedPoint={draftPoint}
-                  selectedLabel={draftLocation.trim()}
-                  onSelect={handleDraftPointSelect}
-                />
-              </div>
-
-              <label className="field-label">
-                메모
-                <textarea
-                  value={draftNote}
-                  onChange={(event) => setDraftNote(event.target.value)}
-                  placeholder={
-                    activeView === 'delivery'
-                      ? '예: 순살 선호, 수령 후 같이 먹을 분은 Social로 참여해 주세요'
-                      : '예: 오늘 안에 가져가면 좋고, 필요한 만큼만 드려요'
-                  }
-                  rows={4}
-                />
-              </label>
-
-              {activeView === 'delivery' ? (
-                <div className="segmented-control">
-                  <button
-                    type="button"
-                    className={draftMood === 'silent' ? 'is-active' : ''}
-                    onClick={() => setDraftMood('silent')}
-                  >
-                    Silent
-                  </button>
-                  <button
-                    type="button"
-                    className={draftMood === 'social' ? 'is-active' : ''}
-                    onClick={() => setDraftMood('social')}
-                  >
-                    Social
-                  </button>
-                </div>
-              ) : (
-                <div className="segmented-control">
-                  <button
-                    type="button"
-                    className={draftCategory === 'ingredient' ? 'is-active' : ''}
-                    onClick={() => setDraftCategory('ingredient')}
-                  >
-                    식재료
-                  </button>
-                  <button
-                    type="button"
-                    className={draftCategory === 'supply' ? 'is-active' : ''}
-                    onClick={() => setDraftCategory('supply')}
-                  >
-                    생필품
-                  </button>
-                </div>
-              )}
-
-              {activeView === 'delivery' && draftMood === 'social' ? (
-                <p className="helper-text">
-                  Social 식사는 승인된 참여자가 생기면 프로필을 바탕으로 대화거리를 자동 추천합니다.
-                </p>
-              ) : null}
-
-              <button className="submit-button" type="submit" disabled={!isSchoolUser || isSubmitting}>
-                {isSubmitting
-                  ? '저장 중...'
-                  : isEditing
-                    ? '변경사항 저장'
-                    : activeView === 'delivery'
-                      ? '배달 파티 등록'
-                      : '나눔 글 등록'}
-              </button>
-
-              {isEditing ? (
-                <button
-                  className="ghost-button composer-cancel"
-                  type="button"
-                  onClick={() => {
-                    resetComposer()
-                    setSubmitMessage('')
-                  }}
-                >
-                  수정 취소
-                </button>
-              ) : null}
-
-              {!isSchoolUser ? (
-                <p className="helper-text">{`글 등록은 @${schoolEmailDomain} 로그인 후 사용할 수 있습니다.`}</p>
-              ) : null}
-
-              {submitMessage ? <p className="helper-text helper-text--strong">{submitMessage}</p> : null}
-            </form>
-          </div>
+                }}
+              />
+            </div>
+          </aside>
         </section>
       </main>
     </div>
@@ -2512,6 +2455,8 @@ function App() {
         <Route path="/profile" element={profilePage} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      {renderBoardDetailModal()}
+      {renderComposerModal()}
       {renderJoinRequestModal()}
     </>
   )
