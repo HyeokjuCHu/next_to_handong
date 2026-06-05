@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth'
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import './App.css'
+import handongLogoUrl from './assets/handonggyeot-logo.svg'
 import { CampusMap } from './components/CampusMap'
 import { LocationPickerMap } from './components/LocationPickerMap'
 import {
@@ -1230,14 +1231,7 @@ function App() {
     <header className="site-header">
       <div className="site-header__inner">
         <Link className="site-brand" to="/">
-          <span className="site-brand__mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" role="img">
-              <path d="M9 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
-              <path d="M15.8 12.2a2.55 2.55 0 1 0 0-5.1 2.55 2.55 0 0 0 0 5.1Z" />
-              <path d="M3.8 19.2c.45-3.05 2.45-5.05 5.2-5.05s4.75 2 5.2 5.05H3.8Z" />
-              <path d="M13.8 19.2c-.16-1.42-.62-2.64-1.34-3.61.86-.86 1.98-1.32 3.34-1.32 2.25 0 3.93 1.85 4.32 4.93h-6.32Z" />
-            </svg>
-          </span>
+          <img className="site-brand__mark" src={handongLogoUrl} alt="" aria-hidden="true" />
           <span>한띵동</span>
         </Link>
 
@@ -2180,7 +2174,15 @@ function App() {
             className={activeView === 'delivery' ? 'is-active' : ''}
             onClick={() => handleBoardChange('delivery')}
           >
-            <span aria-hidden="true">♧</span>
+            <span className="board-tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="img">
+                <path d="M7.5 10.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4Z" />
+                <path d="M16.5 10.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4Z" />
+                <path d="M3.7 19.2c.5-3.5 2-5.25 3.8-5.25s3.3 1.75 3.8 5.25" />
+                <path d="M12.7 19.2c.5-3.5 2-5.25 3.8-5.25s3.3 1.75 3.8 5.25" />
+                <path d="M9.8 12.9h4.4" />
+              </svg>
+            </span>
             배달 동행
           </button>
           <button
@@ -2188,7 +2190,14 @@ function App() {
             className={activeView === 'share' ? 'is-active' : ''}
             onClick={() => handleBoardChange('share')}
           >
-            <span aria-hidden="true">□</span>
+            <span className="board-tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="img">
+                <path d="m12 3.8 7.2 3.9-7.2 3.9-7.2-3.9L12 3.8Z" />
+                <path d="M4.8 7.8v8.1l7.2 4.3 7.2-4.3V7.8" />
+                <path d="M12 11.6v8.4" />
+                <path d="m8.4 9.6 7.2-3.9" />
+              </svg>
+            </span>
             리쉐어
           </button>
         </section>

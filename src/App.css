@@ -2057,18 +2057,9 @@
 .site-brand__mark {
   width: 40px;
   height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   border-radius: 10px;
-  background: var(--mint-strong);
-  color: #ffffff;
-}
-
-.site-brand__mark svg {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
+  object-fit: contain;
 }
 
 .site-nav {
@@ -2436,7 +2427,7 @@
 }
 
 .board-main {
-  width: min(1180px, calc(100% - 32px));
+  width: min(1360px, calc(100% - 32px));
   padding-top: 18px;
 }
 
@@ -2468,6 +2459,9 @@
 }
 
 .board-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 58px;
   border: 0;
   border-radius: 8px;
@@ -2483,13 +2477,30 @@
   color: #ffffff;
 }
 
-.board-tabs span {
-  margin-right: 8px;
+.board-tabs .board-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.board-tab-icon svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .board-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 520px);
   gap: 22px;
   align-items: start;
 }
@@ -2693,7 +2704,7 @@
 .board-map-card .kakao-map-shell,
 .board-map-card .kakao-map-canvas,
 .board-map-card .campus-map {
-  min-height: 300px;
+  min-height: 470px;
 }
 
 .board-map-card .kakao-map-shell,
@@ -3010,13 +3021,13 @@
   .board-map-card .kakao-map-shell,
   .board-map-card .kakao-map-canvas,
   .board-map-card .campus-map {
-    min-height: 360px;
+    min-height: 420px;
   }
 }
 
 @media (max-width: 680px) {
   .board-main {
-    width: min(100% - 18px, 1180px);
+    width: min(100% - 18px, 1360px);
     padding-top: 12px;
   }
 
@@ -3030,28 +3041,44 @@
   .board-titlebar,
   .board-toolbar {
     flex-direction: column;
+    gap: 16px;
+  }
+
+  .board-titlebar .site-nav__button {
+    width: 100%;
   }
 
   .board-tabs {
-    gap: 8px;
+    gap: 14px;
+    margin-bottom: 24px;
+    padding-bottom: 24px;
   }
 
   .board-tabs button {
-    min-height: 52px;
+    min-height: 62px;
   }
 
   .filter-row--primary,
   .board-type-filters {
     width: 100%;
+    gap: 12px;
   }
 
   .filter-row--primary button,
   .board-type-filters button {
     flex: 1 1 42%;
+    min-height: 54px;
   }
 
   .board-write-button {
     width: 100%;
+    min-height: 56px;
+    margin: 6px 0;
+  }
+
+  .board-type-filters {
+    margin-top: 6px;
+    margin-bottom: 22px;
   }
 
   .board-list-item {
@@ -3078,5 +3105,11 @@
   .composer-modal {
     max-height: calc(100svh - 24px);
     border-radius: 8px;
+  }
+
+  .board-map-card .kakao-map-shell,
+  .board-map-card .kakao-map-canvas,
+  .board-map-card .campus-map {
+    min-height: 380px;
   }
 }
