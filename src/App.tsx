@@ -2118,7 +2118,7 @@ function App() {
           </div>
         </section>
 
-        <section className="landing-list-section">
+        <section className="landing-list-section landing-list-section--delivery">
           <div className="landing-list-header">
             <h2>배달 동행</h2>
             <Link to="/board">전체 보기</Link>
@@ -2130,7 +2130,7 @@ function App() {
           </div>
         </section>
 
-        <section className="landing-list-section">
+        <section className="landing-list-section landing-list-section--share">
           <div className="landing-list-header">
             <h2>리쉐어</h2>
             <Link
