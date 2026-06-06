@@ -60,8 +60,8 @@ import { getSocialConversationBrief } from './lib/social'
 
 const deliveryFilters: Array<{ value: DeliveryFilter; label: string }> = [
   { value: 'all', label: '전체 함께 배달' },
-  { value: 'silent', label: '조용히 주문' },
-  { value: 'social', label: '같이 먹기' },
+  { value: 'silent', label: '각자 식사' },
+  { value: 'social', label: '함께 식사' },
 ]
 
 const deliveryCapacityOptions = [2, 3, 4, 5, 6, 7, 8]
@@ -88,7 +88,7 @@ const profileInterestOptions = [
 ]
 
 function getModeLabel(mood: DeliveryMood) {
-  return mood === 'silent' ? '조용히 주문' : '같이 먹기'
+  return mood === 'silent' ? '각자 식사' : '함께 식사'
 }
 
 function getShareLabel(category: ShareCategory) {
@@ -1210,7 +1210,7 @@ function App() {
       await saveUserProfileSettings(user, nextDraft)
       setProfileDraft(nextDraft)
       setProfileInterestsText(formatInterestText(nextInterests))
-      setProfileMessage('프로필을 저장했습니다. 같이 먹기 대화 추천에 바로 반영됩니다.')
+      setProfileMessage('프로필을 저장했습니다. 함께 식사 대화 추천에 바로 반영됩니다.')
     } catch (error) {
       setProfileMessage(getErrorMessage(error, '프로필을 저장하지 못했습니다.'))
     } finally {
@@ -1265,7 +1265,7 @@ function App() {
     return (
       <div className="social-panel">
         <div className="join-panel__header">
-          <strong>같이 먹기 대화 거리</strong>
+          <strong>함께 식사 대화 거리</strong>
           <div className="social-panel__meta">
             {socialBrief ? (
               <span className="panel-chip">
@@ -1277,7 +1277,7 @@ function App() {
         </div>
 
         {!isSchoolUser ? (
-          <p className="join-empty">학교 계정 로그인 후 같이 먹기 대화 추천을 확인할 수 있어요.</p>
+          <p className="join-empty">학교 계정 로그인 후 함께 식사 대화 추천을 확인할 수 있어요.</p>
         ) : waitingForMorePeople ? (
           <p className="join-empty">승인된 참여자가 한 명 이상 생기면 대화 추천이 자동으로 준비됩니다.</p>
         ) : !canCurrentUserViewSocialBrief ? (
@@ -1425,7 +1425,7 @@ function App() {
                     </div>
                     <p>현재 {selectedDeliveryParty.members}명이 참여 중입니다.</p>
                     <p className="join-modal__member-bio">
-                      같이 먹기는 승인된 참여자가 생기면 프로필 기반 대화거리가 준비됩니다.
+                      함께 식사는 승인된 참여자가 생기면 프로필 기반 대화거리가 준비됩니다.
                     </p>
                   </article>
                 )}
@@ -1963,14 +1963,14 @@ function App() {
                   className={draftMood === 'silent' ? 'is-active' : ''}
                   onClick={() => setDraftMood('silent')}
                 >
-                  조용히 주문
+                  각자 식사
                 </button>
                 <button
                   type="button"
                   className={draftMood === 'social' ? 'is-active' : ''}
                   onClick={() => setDraftMood('social')}
                 >
-                  같이 먹기
+                  함께 식사
                 </button>
               </div>
             ) : (
@@ -2205,6 +2205,15 @@ function App() {
         <section className="board-layout" id="dashboard">
           <div className="board-list-column">
             <div className="board-toolbar">
+              <button
+                className="board-write-button"
+                type="button"
+                onClick={() => openComposer(activeView)}
+              >
+                <span aria-hidden="true">＋</span>
+                새 글 올리기
+              </button>
+
               <div className="filter-row filter-row--primary">
                 <button
                   type="button"
@@ -2244,15 +2253,6 @@ function App() {
                   </button>
                 ) : null}
               </div>
-
-              <button
-                className="board-write-button"
-                type="button"
-                onClick={() => openComposer(activeView)}
-              >
-                <span aria-hidden="true">＋</span>
-                새 글 올리기
-              </button>
             </div>
             <div className="board-type-filters">
               {(activeView === 'delivery' ? deliveryFilters : shareFilters).map((filter) => {
