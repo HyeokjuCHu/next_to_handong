@@ -3391,9 +3391,6 @@
   }
 
   .board-tabs {
-    position: sticky;
-    top: 68px;
-    z-index: 30;
     gap: 8px;
     margin: 0 -4px 18px;
     padding: 8px 4px 12px;
@@ -3672,10 +3669,6 @@
   .board-map-card .kakao-map-canvas,
   .board-map-card .campus-map {
     min-height: 300px;
-  }
-
-  .board-tabs {
-    top: 116px;
   }
 
   .board-tabs button {
