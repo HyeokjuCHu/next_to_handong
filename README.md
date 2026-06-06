@@ -211,3 +211,11 @@ npm run deploy:hosting
 3. `.env`, 서비스 계정 JSON, 개인 키는 절대 커밋하지 않습니다.
 4. 배포 전에는 `npm run lint`와 `npm run build`를 통과시킵니다.
 5. 같은 파일을 동시에 크게 수정하면 충돌이 날 수 있으니, 큰 작업은 미리 팀원끼리 담당 영역을 나눕니다.
+
+## Icon Credits
+
+The section icons used in this project are from Flaticon:
+
+- Campus map icon: [Map icon](https://www.flaticon.com/kr/free-icon/map_3082365)
+- Delivery icon: [Delivery icon](https://www.flaticon.com/kr/free-icon/delivery_651605)
+- Together/share icon: [Point icon](https://www.flaticon.com/free-icon/point_14953047?term=heart+shaking+hands&page=1&position=1&origin=search&related_id=14953047)
