@@ -3177,6 +3177,8 @@
   }
 
   .site-nav__button--primary {
+    background: var(--mint-strong);
+    color: #ffffff;
     box-shadow: 0 8px 18px rgba(40, 100, 45, 0.18);
   }
 
