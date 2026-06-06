@@ -59,15 +59,15 @@ import { platformReadiness } from './lib/platform'
 import { getSocialConversationBrief } from './lib/social'
 
 const deliveryFilters: Array<{ value: DeliveryFilter; label: string }> = [
-  { value: 'all', label: '전체 파티' },
-  { value: 'silent', label: 'Silent 주문' },
-  { value: 'social', label: 'Social 식사' },
+  { value: 'all', label: '전체 함께 배달' },
+  { value: 'silent', label: '각자 식사' },
+  { value: 'social', label: '함께 식사' },
 ]
 
 const deliveryCapacityOptions = [2, 3, 4, 5, 6, 7, 8]
 
 const shareFilters: Array<{ value: ShareFilter; label: string }> = [
-  { value: 'all', label: '전체 나눔' },
+  { value: 'all', label: '전체 함께 장보기' },
   { value: 'ingredient', label: '식재료' },
   { value: 'supply', label: '생필품' },
 ]
@@ -88,7 +88,7 @@ const profileInterestOptions = [
 ]
 
 function getModeLabel(mood: DeliveryMood) {
-  return mood === 'silent' ? 'Silent' : 'Social'
+  return mood === 'silent' ? '각자 식사' : '함께 식사'
 }
 
 function getShareLabel(category: ShareCategory) {
@@ -150,7 +150,7 @@ function getShareStatusLabel(post: SharePost, nowMs: number) {
   }
 
   if (post.status === 'completed') {
-    return '나눔 완료'
+    return '장보기 완료'
   }
 
   if (post.expiresAtMs <= nowMs) {
@@ -435,19 +435,19 @@ function App() {
   const mapStatus = platformReadiness.find((item) => item.id === 'kakao')
   const landingMetrics = [
     {
-      label: '배달 동행',
+      label: '함께 배달',
       value: `${currentDeliveryFeed.length}건`,
       caption: '진행 중',
       tone: 'green',
     },
     {
-      label: '리쉐어',
+      label: '함께 장보기',
       value: `${currentShareFeed.length}건`,
-      caption: '나눔 가능',
+      caption: '나눔 중',
       tone: 'green',
     },
     {
-      label: '전체',
+      label: '오늘의 캠퍼스',
       value: `${totalCurrentPosts}건`,
       caption: '현재 활동',
       tone: 'orange',
@@ -473,7 +473,7 @@ function App() {
         : `내 글은 학교 메일(@${schoolEmailDomain}) 로그인 후 확인할 수 있어요.`
       : boardScope === 'reserved'
         ? isSchoolUser
-          ? '내가 예약한 리쉐어 글만 모아보는 화면입니다.'
+          ? '내가 예약한 함께 장보기 글만 모아보는 화면입니다.'
           : `내 예약은 학교 메일(@${schoolEmailDomain}) 로그인 후 확인할 수 있어요.`
         : ''
 
@@ -492,7 +492,7 @@ function App() {
     return onAuthStateChanged(authInstance, (nextUser) => {
       if (nextUser && !isAllowedSchoolEmail(nextUser.email)) {
         setAuthMessage(
-          `학교 메일(@${schoolEmailDomain}) 계정만 글쓰기와 실시간 기능에 사용할 수 있어요.`,
+          `학교 메일(@${schoolEmailDomain}) 계정만 새 글 올리기와 실시간 기능에 사용할 수 있어요.`,
         )
         setUser(null)
         setAuthReady(true)
@@ -545,8 +545,8 @@ function App() {
         setDeliveryListenerReady(false)
         setDataError(
           isPermissionDeniedError(error)
-            ? '배달 파티 데이터를 읽을 권한이 없습니다. Firestore Rules가 실제 프로젝트에 배포되었는지 확인해 주세요.'
-            : getErrorMessage(error, '배달 파티 실시간 데이터를 읽는 데 실패했습니다.'),
+            ? '함께 배달 데이터를 읽을 권한이 없습니다. Firestore Rules가 실제 프로젝트에 배포되었는지 확인해 주세요.'
+            : getErrorMessage(error, '함께 배달 글을 불러오는 데 실패했습니다.'),
         )
       },
     )
@@ -560,8 +560,8 @@ function App() {
         setShareListenerReady(false)
         setDataError(
           isPermissionDeniedError(error)
-            ? '나눔 글 데이터를 읽을 권한이 없습니다. Firestore Rules가 실제 프로젝트에 배포되었는지 확인해 주세요.'
-            : getErrorMessage(error, '나눔 게시글 실시간 데이터를 읽는 데 실패했습니다.'),
+            ? '함께 장보기 데이터를 읽을 권한이 없습니다. Firestore Rules가 실제 프로젝트에 배포되었는지 확인해 주세요.'
+            : getErrorMessage(error, '함께 장보기 글을 불러오는 데 실패했습니다.'),
         )
       },
     )
@@ -810,7 +810,7 @@ function App() {
       if (!isAllowedSchoolEmail(result.user.email)) {
         await signOut(auth)
         setAuthMessage(
-          `학교 메일(@${schoolEmailDomain}) 계정만 글쓰기와 실시간 기능에 사용할 수 있어요.`,
+          `학교 메일(@${schoolEmailDomain}) 계정만 새 글 올리기와 실시간 기능에 사용할 수 있어요.`,
         )
         return
       }
@@ -860,7 +860,7 @@ function App() {
 
     if (!user || !isSchoolUser) {
       setAuthMessage(
-        `글쓰기는 학교 메일(@${schoolEmailDomain})로 로그인한 뒤 사용할 수 있어요.`,
+        `새 글 올리기는 학교 메일(@${schoolEmailDomain})로 로그인한 뒤 사용할 수 있어요.`,
       )
       return
     }
@@ -934,11 +934,11 @@ function App() {
       setSubmitMessage(
         targetId
           ? activeView === 'delivery'
-            ? '배달 파티를 수정했습니다.'
-            : '나눔 글을 수정했습니다.'
+            ? '함께 배달 글을 수정했습니다.'
+            : '함께 장보기 글을 수정했습니다.'
           : activeView === 'delivery'
-            ? '새 배달 파티를 등록했습니다.'
-            : '새 나눔 글을 등록했습니다.',
+            ? '새 함께 배달 글을 올렸습니다.'
+            : '새 함께 장보기 글을 올렸습니다.',
       )
     } catch (error) {
       setSubmitMessage(
@@ -996,8 +996,8 @@ function App() {
 
     const confirmed = window.confirm(
       item.kind === 'delivery'
-        ? '이 배달 파티를 정말 삭제할까요?'
-        : '이 나눔 글을 정말 삭제할까요?',
+        ? '이 함께 배달 글을 정말 삭제할까요?'
+        : '이 함께 장보기 글을 정말 삭제할까요?',
     )
 
     if (!confirmed) {
@@ -1025,8 +1025,8 @@ function App() {
       setIsDetailModalOpen(false)
       setSubmitMessage(
         item.kind === 'delivery'
-          ? '배달 파티를 삭제했습니다.'
-          : '나눔 글을 삭제했습니다.',
+          ? '함께 배달 글을 삭제했습니다.'
+          : '함께 장보기 글을 삭제했습니다.',
       )
     } catch (error) {
       setSubmitMessage(
@@ -1116,7 +1116,7 @@ function App() {
   const handleReserveSharePost = async () => {
     if (!selectedSharePost || !user || !isSchoolUser) {
       setShareActionMessage(
-        `리쉐어 예약은 학교 메일(@${schoolEmailDomain})로 로그인한 뒤 사용할 수 있어요.`,
+        `함께 장보기 예약은 학교 메일(@${schoolEmailDomain})로 로그인한 뒤 사용할 수 있어요.`,
       )
       return
     }
@@ -1160,11 +1160,11 @@ function App() {
 
   const handleCompleteSharePost = async () => {
     if (!selectedSharePost || !user || !isSchoolUser) {
-      setShareActionMessage('나눔 완료 처리는 로그인 후 사용할 수 있습니다.')
+      setShareActionMessage('장보기 완료 처리는 로그인 후 사용할 수 있습니다.')
       return
     }
 
-    const confirmed = window.confirm('이 나눔 글을 완료 처리할까요? 지난 글로 이동합니다.')
+    const confirmed = window.confirm('이 함께 장보기 글을 완료 처리할까요? 지난 글로 이동합니다.')
 
     if (!confirmed) {
       return
@@ -1176,9 +1176,9 @@ function App() {
     try {
       await completeSharePost(selectedSharePost.id)
       setTimelineView('past')
-      setShareActionMessage('나눔을 완료 처리했습니다.')
+      setShareActionMessage('함께 장보기를 완료 처리했습니다.')
     } catch (error) {
-      setShareActionMessage(getErrorMessage(error, '나눔 완료 처리에 실패했습니다.'))
+      setShareActionMessage(getErrorMessage(error, '장보기 완료 처리에 실패했습니다.'))
     } finally {
       setIsShareActionSubmitting(false)
     }
@@ -1210,7 +1210,7 @@ function App() {
       await saveUserProfileSettings(user, nextDraft)
       setProfileDraft(nextDraft)
       setProfileInterestsText(formatInterestText(nextInterests))
-      setProfileMessage('프로필을 저장했습니다. Social 식사 추천에 바로 반영됩니다.')
+      setProfileMessage('프로필을 저장했습니다. 함께 식사 대화 추천에 바로 반영됩니다.')
     } catch (error) {
       setProfileMessage(getErrorMessage(error, '프로필을 저장하지 못했습니다.'))
     } finally {
@@ -1237,7 +1237,7 @@ function App() {
 
         <nav className="site-nav" aria-label="주요 메뉴">
           <Link className="site-nav__button site-nav__button--primary" to="/board">
-            보드 보기
+            한띵동 게시판
           </Link>
           <Link className="site-nav__button" to="/profile">
             프로필
@@ -1265,7 +1265,7 @@ function App() {
     return (
       <div className="social-panel">
         <div className="join-panel__header">
-          <strong>같이 먹기 대화 거리</strong>
+          <strong>함께 식사 대화 거리</strong>
           <div className="social-panel__meta">
             {socialBrief ? (
               <span className="panel-chip">
@@ -1277,7 +1277,7 @@ function App() {
         </div>
 
         {!isSchoolUser ? (
-          <p className="join-empty">학교 계정 로그인 후 Social 식사 추천을 확인할 수 있어요.</p>
+          <p className="join-empty">학교 계정 로그인 후 함께 식사 대화 추천을 확인할 수 있어요.</p>
         ) : waitingForMorePeople ? (
           <p className="join-empty">승인된 참여자가 한 명 이상 생기면 대화 추천이 자동으로 준비됩니다.</p>
         ) : !canCurrentUserViewSocialBrief ? (
@@ -1425,7 +1425,7 @@ function App() {
                     </div>
                     <p>현재 {selectedDeliveryParty.members}명이 참여 중입니다.</p>
                     <p className="join-modal__member-bio">
-                      Social 식사는 승인된 참여자가 생기면 프로필 기반 대화거리가 준비됩니다.
+                      함께 식사는 승인된 참여자가 생기면 프로필 기반 대화거리가 준비됩니다.
                     </p>
                   </article>
                 )}
@@ -1639,7 +1639,7 @@ function App() {
               <p>
                 {isDeliveryItem(selectedItem)
                   ? `${selectedItem.host}님이 모집 중`
-                  : `${selectedItem.owner}님이 나눔 중`}
+                  : `${selectedItem.owner}님이 함께 장보기 중`}
               </p>
             </div>
             <button
@@ -1755,7 +1755,7 @@ function App() {
                 </div>
 
                 <div className="join-modal__members">
-                  <h3>나눔 제공자 정보</h3>
+                  <h3>장보기 제공자 정보</h3>
                   <article className="join-modal__member-card">
                     <div className="join-modal__member-topline">
                       <strong>{selectedItem.owner}</strong>
@@ -1795,7 +1795,7 @@ function App() {
                     onClick={handleCompleteSharePost}
                     disabled={isShareActionSubmitting}
                   >
-                    {isShareActionSubmitting ? '처리 중...' : '나눔 완료'}
+                    {isShareActionSubmitting ? '처리 중...' : '장보기 완료'}
                   </button>
                 ) : null}
               </div>
@@ -1859,18 +1859,18 @@ function App() {
               <h2>
                 {isEditing
                   ? activeView === 'delivery'
-                    ? '배달 동행 수정'
-                    : '리쉐어 수정'
+                    ? '함께 배달 수정'
+                    : '함께 장보기 수정'
                   : activeView === 'delivery'
-                    ? '배달 동행 모집'
-                    : '리쉐어 글쓰기'}
+                    ? '함께 배달 올리기'
+                    : '함께 장보기 올리기'}
               </h2>
               <p>{isSchoolUser ? '학교 인증 계정으로 작성 중' : '학교 로그인 후 작성 가능'}</p>
             </div>
             <button
               className="join-modal__close"
               type="button"
-              aria-label="글쓰기 창 닫기"
+              aria-label="새 글 올리기 창 닫기"
               onClick={closeComposer}
             >
               ×
@@ -1963,14 +1963,14 @@ function App() {
                   className={draftMood === 'silent' ? 'is-active' : ''}
                   onClick={() => setDraftMood('silent')}
                 >
-                  Silent
+                  각자 식사
                 </button>
                 <button
                   type="button"
                   className={draftMood === 'social' ? 'is-active' : ''}
                   onClick={() => setDraftMood('social')}
                 >
-                  Social
+                  함께 식사
                 </button>
               </div>
             ) : (
@@ -1993,7 +1993,7 @@ function App() {
             )}
 
             {!isSchoolUser ? (
-              <p className="helper-text">{`글 등록은 @${schoolEmailDomain} 로그인 후 사용할 수 있습니다.`}</p>
+              <p className="helper-text">{`새 글 올리기는 @${schoolEmailDomain} 로그인 후 사용할 수 있습니다.`}</p>
             ) : null}
             {submitMessage ? <p className="helper-text helper-text--strong">{submitMessage}</p> : null}
           </div>
@@ -2005,8 +2005,8 @@ function App() {
                 : isEditing
                   ? '변경사항 저장'
                   : activeView === 'delivery'
-                    ? '모집 시작'
-                    : '글 등록'}
+                    ? '함께 배달 올리기'
+                    : '함께 장보기 올리기'}
             </button>
           </div>
         </form>
@@ -2076,10 +2076,10 @@ function App() {
             HAN CAMPUS BOARD
             <span>한띵동</span>
           </h1>
-          <p>한동대학교 학생을 위한 캠퍼스 생활 웹 보드</p>
+          <p>한동대학교 학생을 위한 캠퍼스 생활 모아보기</p>
         </section>
 
-        <section className="landing-stats" aria-label="현재 보드 현황">
+        <section className="landing-stats" aria-label="오늘의 캠퍼스 현황">
           {landingMetrics.map((metric) => (
             <article className="landing-stat-card" key={metric.label}>
               <span>{metric.label}</span>
@@ -2097,15 +2097,15 @@ function App() {
             <path d="M39 8v8M35 12h8M10 34v6M7 37h6" />
           </svg>
           <h2>지금 시작하세요</h2>
-          <p>배달 동행으로 함께 주문하고, 리쉐어로 필요한 물건을 나눠보세요</p>
+          <p>함께 배달로 같이 주문하고, 함께 장보기로 필요한 물건을 나눠보세요</p>
           <Link className="landing-cta__button" to="/board">
-            보드 둘러보기
+            한띵동 게시판 보기
           </Link>
         </section>
 
         <section className="landing-board">
           <div className="landing-section-title">
-            <h2>캠퍼스 보드</h2>
+            <h2>오늘의 캠퍼스</h2>
             <span>{realtimeConnected ? '현재 진행 중' : '불러오는 중'}</span>
           </div>
           <div className="landing-map-shell">
@@ -2120,19 +2120,19 @@ function App() {
 
         <section className="landing-list-section">
           <div className="landing-list-header">
-            <h2>배달 동행</h2>
+            <h2>함께 배달</h2>
             <Link to="/board">전체 보기</Link>
           </div>
           <div className="landing-card-grid">
             {landingDeliveryItems.length > 0
               ? landingDeliveryItems.map(renderLandingCard)
-              : renderLandingEmptyCard('아직 열린 배달 동행이 없습니다')}
+              : renderLandingEmptyCard('아직 열린 함께 배달 글이 없습니다')}
           </div>
         </section>
 
         <section className="landing-list-section">
           <div className="landing-list-header">
-            <h2>리쉐어</h2>
+            <h2>함께 장보기</h2>
             <Link
               to="/board"
               onClick={() => {
@@ -2146,7 +2146,7 @@ function App() {
           <div className="landing-card-grid">
             {landingShareItems.length > 0
               ? landingShareItems.map(renderLandingCard)
-              : renderLandingEmptyCard('아직 등록된 리쉐어가 없습니다')}
+              : renderLandingEmptyCard('아직 올라온 함께 장보기 글이 없습니다')}
           </div>
         </section>
       </main>
@@ -2161,14 +2161,14 @@ function App() {
         <section className="board-titlebar">
           <Link className="board-back-link" to="/">
             <span aria-hidden="true">←</span>
-            <span>한띵동 보드</span>
+            <span>한띵동 게시판</span>
           </Link>
           <Link className="site-nav__button" to="/profile">
             프로필
           </Link>
         </section>
 
-        <section className="board-tabs" aria-label="보드 종류">
+        <section className="board-tabs" aria-label="한띵동 게시판 글 종류">
           <button
             type="button"
             className={activeView === 'delivery' ? 'is-active' : ''}
@@ -2183,7 +2183,7 @@ function App() {
                 <path d="M9.8 12.9h4.4" />
               </svg>
             </span>
-            배달 동행
+            함께 배달
           </button>
           <button
             type="button"
@@ -2198,13 +2198,22 @@ function App() {
                 <path d="m8.4 9.6 7.2-3.9" />
               </svg>
             </span>
-            리쉐어
+            함께 장보기
           </button>
         </section>
 
         <section className="board-layout" id="dashboard">
           <div className="board-list-column">
             <div className="board-toolbar">
+              <button
+                className="board-write-button"
+                type="button"
+                onClick={() => openComposer(activeView)}
+              >
+                <span aria-hidden="true">＋</span>
+                새 글 올리기
+              </button>
+
               <div className="filter-row filter-row--primary">
                 <button
                   type="button"
@@ -2244,15 +2253,6 @@ function App() {
                   </button>
                 ) : null}
               </div>
-
-              <button
-                className="board-write-button"
-                type="button"
-                onClick={() => openComposer(activeView)}
-              >
-                <span aria-hidden="true">＋</span>
-                글쓰기
-              </button>
             </div>
             <div className="board-type-filters">
               {(activeView === 'delivery' ? deliveryFilters : shareFilters).map((filter) => {
@@ -2292,8 +2292,8 @@ function App() {
                         : '선택한 조건에 맞는 글이 없습니다'
                       : timelineView === 'current'
                         ? activeView === 'delivery'
-                          ? '아직 등록된 배달 동행이 없습니다'
-                          : '아직 등록된 나눔 글이 없습니다'
+                          ? '아직 열린 함께 배달 글이 없습니다'
+                          : '아직 올라온 함께 장보기 글이 없습니다'
                         : '아직 지난 글이 없습니다'}
                   </strong>
                   <p>
@@ -2302,7 +2302,7 @@ function App() {
                         ? boardScopeEmptyDescription
                         : '필터를 바꾸면 다른 글을 볼 수 있습니다.'
                       : timelineView === 'current'
-                        ? '오른쪽 위 글쓰기 버튼으로 첫 글을 올려보세요.'
+                        ? '새 글 올리기 버튼으로 첫 글을 올려보세요.'
                         : '모집 시간이 지난 글은 여기에 자동으로 쌓입니다.'}
                   </p>
                 </div>
@@ -2314,8 +2314,8 @@ function App() {
             <div className="board-map-card">
               <div className="board-map-card__header">
                 <div>
-                  <h2>위치 지도</h2>
-                  <p>{activeBoardCount}개 위치</p>
+                  <h2>오늘의 캠퍼스</h2>
+                  <p>{activeBoardCount}개 스팟</p>
                 </div>
                 <span>{mapStatus?.ready ? '연동됨' : '준비 중'}</span>
               </div>
